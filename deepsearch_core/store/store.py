@@ -29,6 +29,13 @@ def _parse_dsn(dsn: str) -> str:
 class EventStore:
     """SQLite 事件存储。"""
 
+    # ---- 修复 HIGH-2：增量迁移声明 ----
+    # 每个 (table, column, ddl) 元组：发现旧 db 缺列时执行 ALTER TABLE ADD COLUMN
+    _MIGRATIONS: list[tuple[str, str, str]] = [
+        ("runs", "result_json", "ALTER TABLE runs ADD COLUMN result_json TEXT"),
+        ("runs", "error", "ALTER TABLE runs ADD COLUMN error TEXT"),
+    ]
+
     def __init__(self, dsn: str = "sqlite:///./runs.db"):
         self.path = _parse_dsn(dsn)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
@@ -37,6 +44,19 @@ class EventStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(SCHEMA_SQL)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """旧 db 升级：CREATE TABLE IF NOT EXISTS 不会改 schema，必须显式 ALTER。"""
+        for table, column, ddl in self._MIGRATIONS:
+            cur = self._conn.execute(f"PRAGMA table_info({table})")
+            existing = {row[1] for row in cur.fetchall()}
+            if column not in existing:
+                try:
+                    self._conn.execute(ddl)
+                except sqlite3.OperationalError:
+                    # 并发场景：另一个进程刚加过，忽略
+                    pass
 
     # ---------- runs ----------
 

@@ -83,17 +83,25 @@ async def run_quick_search(
         if not engines:
             raise LLMError("No search engines configured")
 
-        try:
-            search_results_lists = await asyncio.wait_for(
-                asyncio.gather(*[_safe_search(e, query) for e in engines]),
-                timeout=budget,
-            )
-        except asyncio.TimeoutError:
-            search_results_lists = []
+        # ---- 修复 MEDIUM-1：超时时保留已完成的结果，只取消 pending ----
+        search_tasks = [asyncio.create_task(_safe_search(e, query)) for e in engines]
+        done, pending = await asyncio.wait(
+            search_tasks,
+            timeout=budget,
+            return_when=asyncio.ALL_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+        # 等被取消的 task 收尾，避免 warning
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
         all_results: list[SearchResult] = []
-        for rl in search_results_lists:
-            all_results.extend(rl)
+        for t in done:
+            try:
+                all_results.extend(t.result())
+            except Exception as e:
+                logger.warning("fast_lane_search_task_failed", error=str(e))
 
         # ---- 2. 去重 + policy 过滤 ----
         deduped = deduplicate_results(all_results)

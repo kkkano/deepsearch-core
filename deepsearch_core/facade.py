@@ -137,23 +137,28 @@ class DeepSearch:
         }
         return GraphRunner(nodes=nodes, store=self.store)
 
-    async def quick_search(self, query: str, policy: str = "general", max_results: int = 5, **kwargs) -> dict[str, Any]:
+    async def quick_search(
+        self,
+        query: str,
+        policy: str = "general",
+        max_results: int = 5,
+        timeout_seconds: int = 12,
+        **extra: Any,
+    ) -> dict[str, Any]:
         """单轮快速搜索（Fast Lane，<8s 目标）。
 
         ---- 修复 #4 ----
         绕过 6 节点 graph，直接 search → policy_filter → reranker → fetch → reporter-lite。
-        省掉 check_clarity / supervisor / planner / fan_out / critic。
         """
-        timeout = int(kwargs.pop("timeout_seconds", 12))
         config = RunConfig(
             goal=query,
             depth=1,
             max_agents=1,
             max_steps_per_agent=1,
             policy=policy,
-            timeout_seconds=timeout,
+            timeout_seconds=timeout_seconds,
             enable_steer=False,
-            **kwargs,
+            extra=extra,
         )
         ctx = self._build_context(policy)
         final = await run_quick_search(
@@ -165,17 +170,33 @@ class DeepSearch:
         )
         return _state_to_dict(final)
 
-    async def deep_search(self, query: str, depth: int = 3, policy: str = "general", **kwargs) -> dict[str, Any]:
-        """深度搜索（fan-out + critic + reporter）。"""
+    async def deep_search(
+        self,
+        query: str,
+        depth: int = 3,
+        policy: str = "general",
+        max_agents: int | None = None,
+        timeout_seconds: int | None = None,
+        enable_steer: bool = True,
+        **extra: Any,
+    ) -> dict[str, Any]:
+        """深度搜索（fan-out + critic + reporter）。
+
+        ---- 修复 HIGH-1 ----
+        显式参数化所有配置，避免 RunConfig 双传 TypeError。
+        多余的 kwargs 进入 RunConfig.extra（领域特化字段保留通道）。
+        """
         config = RunConfig(
             goal=query,
             depth=depth,
-            max_agents=self.config.engine.max_agents_fan_out,
+            max_agents=max_agents if max_agents is not None else self.config.engine.max_agents_fan_out,
             max_steps_per_agent=self.config.engine.max_steps_per_research,
             policy=policy,
-            timeout_seconds=self.config.engine.task_timeout_seconds,
-            enable_steer=True,
-            **kwargs,
+            timeout_seconds=(
+                timeout_seconds if timeout_seconds is not None else self.config.engine.task_timeout_seconds
+            ),
+            enable_steer=enable_steer,
+            extra=extra,
         )
         state = State(config=config)
         ctx = self._build_context(policy)
@@ -184,22 +205,32 @@ class DeepSearch:
         return _state_to_dict(final)
 
     async def stream(
-        self, query: str, depth: int = 3, policy: str = "general", **kwargs
+        self,
+        query: str,
+        depth: int = 3,
+        policy: str = "general",
+        max_agents: int | None = None,
+        timeout_seconds: int | None = None,
+        enable_steer: bool = True,
+        **extra: Any,
     ) -> AsyncIterator[Event]:
         """流式：返回事件迭代器。"""
         config = RunConfig(
             goal=query,
             depth=depth,
-            max_agents=self.config.engine.max_agents_fan_out,
+            max_agents=max_agents if max_agents is not None else self.config.engine.max_agents_fan_out,
+            max_steps_per_agent=self.config.engine.max_steps_per_research,
             policy=policy,
-            timeout_seconds=self.config.engine.task_timeout_seconds,
-            **kwargs,
+            timeout_seconds=(
+                timeout_seconds if timeout_seconds is not None else self.config.engine.task_timeout_seconds
+            ),
+            enable_steer=enable_steer,
+            extra=extra,
         )
         state = State(config=config)
         ctx = self._build_context(policy)
         runner = self._build_runner(ctx)
 
-        # 启动 runner 异步任务，订阅 bus
         import asyncio
 
         run_task = asyncio.create_task(runner.run(state, start_node="check_clarity"))

@@ -105,3 +105,62 @@ async def test_manager_poll_unknown_task_raises(store):
     from deepsearch_core.exceptions import TaskNotFoundError
     with pytest.raises(TaskNotFoundError):
         await manager.poll("nonexistent_task_id", wait_seconds=1)
+
+
+@pytest.mark.asyncio
+async def test_manager_cancel_distinguishes_reasons(store):
+    """修复 MEDIUM-4 验证：cancel 区分 not_found / already_finished / cancelled。"""
+    from deepsearch_core.engine.runner import GraphRunner
+
+    async def quick_node(state):
+        return state, END
+
+    def make_runner():
+        return GraphRunner(nodes={"quick": quick_node, "check_clarity": quick_node}, store=store)
+
+    fake_ds = _FakeDS(store, make_runner)
+    manager = RunManager(fake_ds)  # type: ignore
+
+    # 1. 取消不存在的任务 → not_found
+    res = await manager.cancel("nonexistent")
+    assert res["cancelled"] is False
+    assert res["reason"] == "not_found"
+
+    # 2. 启动 + 完成的任务 → already_finished
+    payload = await manager.start("test")
+    task_id = payload["task_id"]
+    await manager.poll(task_id, wait_seconds=5)  # 等到完成
+    # 任务已完成，再取消应该返回 already_finished
+    res = await manager.cancel(task_id)
+    assert res["cancelled"] is False
+    assert res["reason"] == "already_finished"
+
+
+@pytest.mark.asyncio
+async def test_manager_cleanup_on_done_callback(store):
+    """修复 HIGH-3 验证：任务完成自动清理 _tasks，无 poll 也不泄漏。"""
+    from deepsearch_core.engine.runner import GraphRunner
+
+    async def fast(state):
+        return state, END
+
+    def make_runner():
+        return GraphRunner(nodes={"fast": fast, "check_clarity": fast}, store=store)
+
+    fake_ds = _FakeDS(store, make_runner)
+    manager = RunManager(fake_ds)  # type: ignore
+
+    payload = await manager.start("test")
+    task_id = payload["task_id"]
+
+    # 等任务真的跑完（不 poll，让 done_callback 自动清理）
+    task = manager._tasks.get(task_id)
+    assert task is not None
+    await task
+
+    # 给 done_callback 一点时间运行
+    await asyncio.sleep(0.05)
+
+    # 没人 poll 也应该被清理
+    assert task_id not in manager._tasks, "_tasks 应该被 done_callback 清理"
+    assert task_id not in manager._completion_events, "_completion_events 应该被清理"

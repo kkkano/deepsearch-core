@@ -76,7 +76,8 @@ class RunManager:
         runner = self.ds._build_runner(ctx)
 
         completion = asyncio.Event()
-        self._completion_events[state.run_id] = completion
+        run_id = state.run_id
+        self._completion_events[run_id] = completion
 
         async def _wrapped_run() -> State:
             try:
@@ -84,16 +85,28 @@ class RunManager:
             finally:
                 completion.set()
 
-        task = asyncio.create_task(_wrapped_run(), name=f"run-{state.run_id}")
-        self._tasks[state.run_id] = task
+        task = asyncio.create_task(_wrapped_run(), name=f"run-{run_id}")
+        self._tasks[run_id] = task
+
+        # ---- 修复 HIGH-3：任务结束自动清理，无 poll 也不泄漏 ----
+        def _on_done(_t: asyncio.Task) -> None:
+            self._tasks.pop(run_id, None)
+            self._completion_events.pop(run_id, None)
+            # 吞掉 task.exception() 防止 "task exception was never retrieved" warning
+            try:
+                _t.exception()
+            except (asyncio.CancelledError, asyncio.InvalidStateError):
+                pass
+
+        task.add_done_callback(_on_done)
 
         return {
-            "task_id": state.run_id,
+            "task_id": run_id,
             "status": "running",
             "eta_seconds": 30 + depth * 15,
             "poll_with": "poll",
             "steer_with": "steer",
-            "resource_uri": f"deepsearch://task/{state.run_id}",
+            "resource_uri": f"deepsearch://task/{run_id}",
         }
 
     # ------------------------------------------------------------------
@@ -127,9 +140,7 @@ class RunManager:
     def _fetch_completed(self, task_id: str) -> dict[str, Any]:
         run = self.ds.store.get_run(task_id)
         persisted = self.ds.store.get_run_result(task_id)
-        # 清理 in-process 引用
-        self._tasks.pop(task_id, None)
-        self._completion_events.pop(task_id, None)
+        # in-process 引用由 add_done_callback 自动清理（修复 HIGH-3）
         return self._build_completed_payload(task_id, run, persisted)
 
     def _build_partial_payload(self, task_id: str) -> dict[str, Any]:
@@ -174,18 +185,45 @@ class RunManager:
     # ------------------------------------------------------------------
 
     async def cancel(self, task_id: str) -> dict[str, Any]:
+        """取消任务。
+
+        ---- 修复 MEDIUM-4：返回区分 4 种情况 ----
+        - cancelled=True, status=cancelled         → 真的取消了
+        - cancelled=False, reason=not_found        → task_id 不存在
+        - cancelled=False, reason=already_finished → 任务已经完成/失败/超时
+        - cancelled=False, reason=no_in_flight     → store 有记录但 in-process 句柄丢失
+        """
         task = self._tasks.get(task_id)
-        if task and not task.done():
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.exception("cancel_swallowed", task_id=task_id)
-        self._tasks.pop(task_id, None)
-        self._completion_events.pop(task_id, None)
-        return {"cancelled": True, "task_id": task_id}
+
+        if task is None:
+            run = self.ds.store.get_run(task_id)
+            if run is None:
+                return {"cancelled": False, "reason": "not_found", "task_id": task_id}
+            if run.get("finished_at"):
+                return {
+                    "cancelled": False,
+                    "reason": "already_finished",
+                    "status": run.get("status"),
+                    "task_id": task_id,
+                }
+            return {"cancelled": False, "reason": "no_in_flight", "task_id": task_id}
+
+        if task.done():
+            return {
+                "cancelled": False,
+                "reason": "already_finished",
+                "task_id": task_id,
+            }
+
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("cancel_swallowed", task_id=task_id)
+        # add_done_callback 已自动清理 _tasks/_completion_events
+        return {"cancelled": True, "task_id": task_id, "status": "cancelled"}
 
     # ------------------------------------------------------------------
     # steer

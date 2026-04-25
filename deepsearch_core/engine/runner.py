@@ -51,12 +51,13 @@ class GraphRunner:
 
     async def run(self, state: State, start_node: str = "check_clarity") -> State:
         """运行 graph 直到 END / 异常 / 超时 / 取消。"""
+        # ---- 修复 MEDIUM-2：先把 state 标 running 再 create_run（避免 GET 期间显示 pending）----
+        state = state.with_update(status=RunStatus.RUNNING, current_node=start_node)
         # ---- 修复 #2.1：先 create_run（建立外键），再发 RUN_STARTED ----
         if self.store:
             self.store.create_run(state)
         await self._emit(state.run_id, EventType.RUN_STARTED, {"goal": state.config.goal})
 
-        state = state.with_update(status=RunStatus.RUNNING, current_node=start_node)
         current = start_node
 
         try:
@@ -85,6 +86,7 @@ class GraphRunner:
                 await self._emit(state.run_id, EventType.NODE_STARTED, {"node": current, "step": state.step_count})
 
                 node_fn = self.nodes[current]
+                prev_evidence_count = len(state.evidence)
                 # ---- 修复 #2.2：节点级 wait_for(remaining) 防止单节点 hang ----
                 try:
                     new_state, next_node = await asyncio.wait_for(node_fn(state), timeout=remaining)
@@ -111,6 +113,15 @@ class GraphRunner:
                     EventType.NODE_COMPLETED,
                     {"node": current, "next": next_node, "step": state.step_count},
                 )
+
+                # ---- 修复 LOW: emit EVIDENCE_FOUND 让 manager 进度统计准确 ----
+                added = len(state.evidence) - prev_evidence_count
+                if added > 0:
+                    await self._emit(
+                        state.run_id,
+                        EventType.EVIDENCE_FOUND,
+                        {"added": added, "total": len(state.evidence), "node": current},
+                    )
 
                 # ---- 检查点 2：节点完成后 check steer ----
                 if state.config.enable_steer:

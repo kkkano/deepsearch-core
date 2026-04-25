@@ -6,6 +6,75 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-25 — Second-Round Reviewer Feedback
+
+> Tightens the runtime so it can drive Cherry Studio / Telegram bots without
+> leaks, surprises, or cross-adapter inconsistencies. No new features —
+> robustness only.
+
+### Fixed (HIGH)
+
+- **kwargs collisions** (`facade.py`): `quick_search` / `deep_search` /
+  `stream` now accept `max_agents`, `timeout_seconds`, `enable_steer` as
+  explicit parameters. Previously HTTP `/v1/search/deep` and CLI `deep`
+  forwarded these via `**kwargs` while the body also passed them, causing a
+  hard `TypeError` on RunConfig double-binding. Excess kwargs land in
+  `RunConfig.extra` for domain-specific use.
+- **SQLite migration** (`store/store.py`): `EventStore.__init__` now runs
+  `_migrate()` after `CREATE TABLE IF NOT EXISTS`. Existing v0.1.0 / v0.1.1
+  databases get `result_json` and `error` columns added via `ALTER TABLE ADD
+  COLUMN`. Without this, upgraders saw `OperationalError: no such column:
+  result_json` on the first finished run.
+- **Manager memory leak** (`engine/manager.py`): `start()` now attaches a
+  `task.add_done_callback(_cleanup)` that removes the task from `_tasks` and
+  `_completion_events` regardless of whether anyone calls `poll()`.
+  Fire-and-forget tasks (background telemetry, smoke tests) no longer pile
+  up forever.
+
+### Fixed (MEDIUM)
+
+- **Fast Lane partial results** (`engine/fast_lane.py`): replaced
+  `await asyncio.wait_for(asyncio.gather(...), timeout=budget)` with
+  `asyncio.wait(..., return_when=ALL_COMPLETED, timeout=budget)` plus
+  cancel-pending. Previously a single slow engine timing out would discard
+  the results from engines that had already returned. Now the fast ones are
+  preserved, only the laggards are cancelled.
+- **Pending status during run** (`engine/runner.py`): `state.status` is set
+  to `running` *before* `create_run`, so `GET /v1/runs/{id}` no longer shows
+  `pending` for the entire duration of an in-flight task.
+- **WebSocket exit** (`adapters/http/app.py`): the `/ws/runs/{id}` handler
+  now uses `asyncio.wait(..., return_when=FIRST_COMPLETED)` and cancels the
+  pending side. Previously `recv_steer` would block forever after
+  `push_events` exited (task finished), leaving the connection hanging until
+  the client disconnected.
+- **Cancel semantics** (`engine/manager.py`): `cancel()` now distinguishes
+  `not_found` / `already_finished` / `no_in_flight` / `cancelled`. Previous
+  blanket `cancelled=True` told callers a no-op succeeded.
+
+### Fixed (LOW)
+
+- **Hard-coded version strings** (`adapters/http/app.py`,
+  `adapters/mcp/server.py`): both adapters now read from
+  `deepsearch_core.__version__` instead of literal `"0.1.0"`.
+- **`evidence_found` event actually emitted** (`engine/runner.py`): runner
+  now compares evidence count before/after each node and emits
+  `EVIDENCE_FOUND` when the count grows. `RunManager._build_partial_payload`
+  was already counting these events for progress reporting; before this
+  patch, the count was always zero.
+
+### Tests
+
+- `test_facade_kwargs.py` (4 cases) — explicit parameter signatures, no more
+  `**kwargs` collision; `RunConfig.extra` accepts arbitrary dicts.
+- `test_migration.py` (2 cases) — old v0.1.0 schema gets `result_json`/
+  `error` columns; idempotent across multiple `EventStore` opens.
+- `test_manager.py` (+2 cases): cancel reasons distinguished;
+  `add_done_callback` cleans up `_tasks` without poll.
+- `test_fast_lane_partial.py` (1 case) — slow engine doesn't kill fast
+  results.
+
+Total: **57 unit tests passing** (was 48 in v0.1.1).
+
 ## [0.1.1] - 2026-04-25 — Reviewer Feedback Patch
 
 ### Fixed (P0 — bugs blocking real use)

@@ -19,6 +19,7 @@ from typing import Any
 
 import structlog
 
+from deepsearch_core import __version__
 from deepsearch_core.config import get_config
 from deepsearch_core.exceptions import (
     DeepSearchError,
@@ -244,7 +245,7 @@ def main():
                     write_stream,
                     InitializationOptions(
                         server_name="deepsearch-core",
-                        server_version="0.1.0",
+                        server_version=__version__,
                         capabilities=server.get_capabilities(
                             notification_options=NotificationOptions(),
                             experimental_capabilities={},

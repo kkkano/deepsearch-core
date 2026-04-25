@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from deepsearch_core import __version__
 from deepsearch_core.config import get_config
 from deepsearch_core.engine.state import RunConfig, State
 from deepsearch_core.exceptions import DeepSearchError, TaskNotFoundError
@@ -27,7 +28,7 @@ logger = structlog.get_logger(__name__)
 
 app = FastAPI(
     title="deepsearch-core",
-    version="0.1.0",
+    version=__version__,
     description="Protocol-agnostic deep research engine",
 )
 
@@ -81,7 +82,7 @@ class SteerRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"name": "deepsearch-core", "version": "0.1.0", "docs": "/docs"}
+    return {"name": "deepsearch-core", "version": __version__, "docs": "/docs"}
 
 
 @app.get("/health")
@@ -229,38 +230,59 @@ async def cancel_run(run_id: str):
 
 @app.websocket("/ws/runs/{run_id}")
 async def ws_run(websocket: WebSocket, run_id: str):
-    """WebSocket 双向通信：服务端推送事件，客户端发送 steer。"""
+    """WebSocket 双向通信：服务端推送事件，客户端发送 steer。
+
+    ---- 修复 MEDIUM-3 ----
+    用 FIRST_COMPLETED + cancel pending：push_events 完成（任务结束）就退出 recv_steer，
+    避免 recv_steer 永远 await 卡住整个 ws handler。
+    """
     await websocket.accept()
     ds = get_ds()
 
     last_seq = -1
+
+    async def push_events():
+        nonlocal last_seq
+        while True:
+            events = ds.list_events(run_id)
+            for e in events:
+                if e.seq > last_seq:
+                    last_seq = e.seq
+                    await websocket.send_json(e.model_dump(mode="json"))
+            run = ds.store.get_run(run_id)
+            if run and run.get("finished_at"):
+                break
+            await asyncio.sleep(0.5)
+
+    async def recv_steer():
+        while True:
+            msg = await websocket.receive_json()
+            if msg.get("type") == "steer":
+                try:
+                    ds.manager.steer(run_id, msg.get("content", ""), scope=msg.get("scope", "global"))
+                    await websocket.send_json({"type": "steer_ack", "accepted": True})
+                except Exception as e:
+                    await websocket.send_json({"type": "steer_ack", "accepted": False, "error": str(e)})
+
+    push_task = asyncio.create_task(push_events())
+    recv_task = asyncio.create_task(recv_steer())
     try:
-        async def push_events():
-            nonlocal last_seq
-            while True:
-                events = ds.list_events(run_id)
-                for e in events:
-                    if e.seq > last_seq:
-                        last_seq = e.seq
-                        await websocket.send_json(e.model_dump(mode="json"))
-                run = ds.store.get_run(run_id)
-                if run and run.get("finished_at"):
-                    break
-                await asyncio.sleep(0.5)
-
-        async def recv_steer():
-            while True:
-                msg = await websocket.receive_json()
-                if msg.get("type") == "steer":
-                    try:
-                        ds.manager.steer(run_id, msg.get("content", ""), scope=msg.get("scope", "global"))
-                        await websocket.send_json({"type": "steer_ack", "accepted": True})
-                    except Exception as e:
-                        await websocket.send_json({"type": "steer_ack", "accepted": False, "error": str(e)})
-
-        await asyncio.gather(push_events(), recv_steer(), return_exceptions=True)
+        done, pending = await asyncio.wait(
+            [push_task, recv_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        # 重新抛出异常（如果 push 异常退出）
+        for t in done:
+            exc = t.exception()
+            if exc and not isinstance(exc, (WebSocketDisconnect, asyncio.CancelledError)):
+                logger.warning("ws_task_error", run_id=run_id, error=str(exc))
     except WebSocketDisconnect:
         logger.info("ws_disconnected", run_id=run_id)
+        push_task.cancel()
+        recv_task.cancel()
 
 
 def run():
