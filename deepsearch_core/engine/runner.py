@@ -18,7 +18,7 @@ import structlog
 
 from deepsearch_core.engine.events import Event, EventBus, EventType
 from deepsearch_core.engine.state import RunStatus, State
-from deepsearch_core.engine.steer import SteerCommand, SteerScope
+from deepsearch_core.engine.steer import SteerScope
 from deepsearch_core.exceptions import DeepSearchError, TimeoutError_
 
 if TYPE_CHECKING:
@@ -50,10 +50,11 @@ class GraphRunner:
         self._seq_counter: dict[str, int] = {}
 
     async def run(self, state: State, start_node: str = "check_clarity") -> State:
-        """运行 graph 直到 END / 异常 / 超时。"""
-        await self._emit(state.run_id, EventType.RUN_STARTED, {"goal": state.config.goal})
+        """运行 graph 直到 END / 异常 / 超时 / 取消。"""
+        # ---- 修复 #2.1：先 create_run（建立外键），再发 RUN_STARTED ----
         if self.store:
             self.store.create_run(state)
+        await self._emit(state.run_id, EventType.RUN_STARTED, {"goal": state.config.goal})
 
         state = state.with_update(status=RunStatus.RUNNING, current_node=start_node)
         current = start_node
@@ -68,8 +69,9 @@ class GraphRunner:
                 if current == END:
                     break
 
-                # ---- 检查超时 ----
-                if state.elapsed_seconds() > state.config.timeout_seconds:
+                # ---- 计算剩余预算 + 整体超时 ----
+                remaining = state.config.timeout_seconds - state.elapsed_seconds()
+                if remaining <= 0:
                     raise TimeoutError_(
                         f"Run {state.run_id} exceeded {state.config.timeout_seconds}s",
                         run_id=state.run_id,
@@ -83,8 +85,21 @@ class GraphRunner:
                 await self._emit(state.run_id, EventType.NODE_STARTED, {"node": current, "step": state.step_count})
 
                 node_fn = self.nodes[current]
+                # ---- 修复 #2.2：节点级 wait_for(remaining) 防止单节点 hang ----
                 try:
-                    new_state, next_node = await node_fn(state)
+                    new_state, next_node = await asyncio.wait_for(node_fn(state), timeout=remaining)
+                except asyncio.TimeoutError as e:
+                    logger.warning("node_timeout", run_id=state.run_id, node=current, remaining=remaining)
+                    await self._emit(
+                        state.run_id,
+                        EventType.NODE_ERROR,
+                        {"node": current, "error": "node_timeout", "remaining_seconds": remaining},
+                    )
+                    raise TimeoutError_(
+                        f"Node {current} exceeded {remaining:.1f}s in run {state.run_id}",
+                        run_id=state.run_id,
+                        node=current,
+                    ) from e
                 except Exception as e:
                     logger.exception("node_error", run_id=state.run_id, node=current)
                     await self._emit(state.run_id, EventType.NODE_ERROR, {"node": current, "error": str(e)})
@@ -107,6 +122,20 @@ class GraphRunner:
             state = state.with_update(status=RunStatus.COMPLETED, finished_at=datetime.utcnow())
             await self._emit(state.run_id, EventType.RUN_FINISHED, {"status": "completed"})
 
+        except asyncio.CancelledError as e:
+            # ---- 修复 #2.3：单独捕获 CancelledError，落 RUN_CANCELLED ----
+            state = state.with_update(
+                status=RunStatus.CANCELLED,
+                finished_at=datetime.utcnow(),
+                last_error="cancelled by user",
+            )
+            await self._emit(state.run_id, EventType.RUN_CANCELLED, {"reason": "cancelled"})
+            # 持久化后再向上抛，让上层 task 真正退出
+            if self.store:
+                self.store.finish_run(state)
+            self.bus.close(state.run_id)
+            raise
+
         except TimeoutError_ as e:
             state = state.with_update(status=RunStatus.TIMEOUT, finished_at=datetime.utcnow(), last_error=str(e))
             await self._emit(state.run_id, EventType.RUN_FAILED, {"reason": "timeout", "error": str(e)})
@@ -117,7 +146,11 @@ class GraphRunner:
 
         finally:
             if self.store:
-                self.store.update_run_status(state.run_id, state.status.value, state.finished_at)
+                # ---- 修复 #3：用 finish_run 持久化完整结果（含 report/evidence/critic）----
+                try:
+                    self.store.finish_run(state)
+                except Exception:
+                    logger.exception("finish_run_failed", run_id=state.run_id)
             self.bus.close(state.run_id)
 
         return state

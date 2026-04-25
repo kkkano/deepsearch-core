@@ -6,6 +6,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-25 — Reviewer Feedback Patch
+
+### Fixed (P0 — bugs blocking real use)
+
+- **#2.1 Foreign-key ordering** (`engine/runner.py`): `create_run` now happens
+  before the first `RUN_STARTED` event. Previously every run silently lost its
+  first event due to SQLite foreign-key rejection (events table → runs table)
+  because `_emit` used a bare `try/except` that swallowed the integrity error.
+- **#2.2 Per-node timeout** (`engine/runner.py`): each node is now wrapped in
+  `asyncio.wait_for(node_fn(state), timeout=remaining)`. Previously a hanging
+  LLM call would block the whole run forever — `task_timeout_seconds` was only
+  checked between nodes, never inside.
+- **#2.3 CancelledError handling** (`engine/runner.py`): `asyncio.CancelledError`
+  is now caught explicitly and produces a `RUN_CANCELLED` event +
+  `status=cancelled`. Previously `cancel_search` left the store stuck on
+  `running`.
+- **Subdomain matching** (`retrieval/policy_filter.py`): `reddit.com` in
+  `blocked_domains` now correctly blocks `www.reddit.com` and `old.reddit.com`.
+  Previously it didn't match any subdomain, silently breaking every source
+  policy. `*.spam.*` glob patterns continue to work.
+- **#3 Result persistence** (`store/schema.py`, `store/store.py`,
+  `engine/runner.py`): `runs` table gains `result_json` and `error` columns;
+  `EventStore.finish_run(state)` persists report / evidence / critic /
+  token_usage on every run finalisation. Previously `poll_search` returned a
+  placeholder `"(see store for full report; v0.2 will inline)"` — v0.1 was
+  effectively unusable.
+- **#1 Unified task lifecycle** (`engine/manager.py`, `adapters/http/app.py`,
+  `adapters/mcp/server.py`): new `RunManager` owned by the `DeepSearch` facade
+  is the single source of truth for `start / poll / cancel / steer / result /
+  events`. HTTP and MCP adapters no longer maintain their own
+  `_running_tasks` dicts, so a task started via HTTP is now visible to MCP and
+  vice versa.
+- **#5 Resource lifecycle** (`facade.py`, `agents/base.py`): provider clients
+  (Tavily / Serper / Crossref / Firecrawl / Jina / Cohere) are now allocated
+  once in a `DeepSearch._provider_pool` and reused across all queries. Each
+  call to `_build_context` no longer leaks an httpx connection pool.
+  `DeepSearch.aclose()` now closes everything; `AgentContext.aclose()` is
+  available for cases that own their clients.
+
+### Added (P1 — performance + quality)
+
+- **#4 Quick Search Fast Lane** (`engine/fast_lane.py`): `quick_search` now
+  bypasses the 6-node graph entirely. The new path is
+  `search → policy_filter → optional reranker (top-K) → fetch top-2 full
+  text → reporter-lite (single LLM call)`, with explicit per-stage budgets
+  derived from `timeout_seconds`. Default timeout dropped from 30 s to 12 s.
+- **New HTTP routes**: `GET /v1/runs/{id}/poll` (long-poll, max 25 s) and
+  `GET /v1/runs/{id}/result` (immediate persisted result).
+- **MCP tools** now return real reports through `RunManager.poll`.
+
+### Tests
+
+- `test_runner_run_started_event_persisted` — guards against the foreign-key
+  regression returning.
+- `test_runner_node_timeout_marks_run_timeout` — verifies per-node timeout.
+- `test_manager_start_poll_returns_real_report` — `poll` returns the actual
+  markdown body, not a placeholder.
+- `test_manager_cancel_sets_cancelled_status` — store records `cancelled`
+  status after cancel.
+- `test_filter_blocks_subdomain` — `reddit.com` in blocked_domains blocks
+  `www.reddit.com` / `old.reddit.com` but not `notreddit.com`.
+- `test_filter_blocks_wildcard` — glob patterns still work.
+- Existing steer tests now seed `runs` rows so they're compatible with the
+  enforced foreign key.
+
+Total: **48 unit tests passing** (was 36 in v0.1.0).
+
 ## [0.1.0] - 2026-04-25
 
 ### Added — Initial Release

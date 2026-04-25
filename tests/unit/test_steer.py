@@ -34,7 +34,16 @@ def test_steer_to_prompt_injection():
     assert "重点看 X" in s
 
 
+def _seed_run(store, run_id: str) -> None:
+    """test helper: 创建一个 run 行，让外键约束满足。"""
+    from deepsearch_core.engine.state import RunConfig, State
+
+    state = State(run_id=run_id, config=RunConfig(goal=f"goal-{run_id}"))
+    store.create_run(state)
+
+
 def test_store_add_pop_steer(store):
+    _seed_run(store, "run_a")
     cmd = store.add_steer("run_a", "redirect please", SteerScope.CURRENT_STEP)
     assert cmd.run_id == "run_a"
 
@@ -49,6 +58,7 @@ def test_store_pop_returns_none_when_empty(store):
 
 
 def test_store_mark_applied_then_no_pop(store):
+    _seed_run(store, "run_b")
     cmd = store.add_steer("run_b", "test")
     popped = store.pop_pending_steer("run_b")
     assert popped is not None

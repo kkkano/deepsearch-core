@@ -39,10 +39,10 @@ app.add_middleware(
 )
 
 _ds: DeepSearch | None = None
-_running_tasks: dict[str, asyncio.Task] = {}
 
 
 def get_ds() -> DeepSearch:
+    """全局单例，所有路由共享同一个 DeepSearch（含 manager + provider pool）。"""
     global _ds
     if _ds is None:
         _ds = DeepSearch(get_config())
@@ -119,32 +119,46 @@ async def deep_search(req: DeepSearchRequest):
 
 @app.post("/v1/search/deep/async")
 async def deep_search_async(req: DeepSearchRequest):
-    """异步启动，立即返回 task_id。"""
+    """异步启动，立即返回 task_id（走统一 RunManager）。"""
     ds = get_ds()
-
-    config = RunConfig(
-        goal=req.query,
+    payload = await ds.manager.start(
+        query=req.query,
         depth=req.depth,
-        max_agents=req.max_agents,
         policy=req.policy,
+        max_agents=req.max_agents,
         timeout_seconds=req.timeout_seconds,
         enable_steer=req.enable_steer,
     )
-    state = State(config=config)
-    ctx = ds._build_context(req.policy)
-    runner = ds._build_runner(ctx)
+    task_id = payload["task_id"]
+    payload.update(
+        {
+            "poll_url": f"/v1/runs/{task_id}",
+            "long_poll_url": f"/v1/runs/{task_id}/poll",
+            "stream_url": f"/v1/runs/{task_id}/stream",
+            "steer_url": f"/v1/runs/{task_id}/steer",
+        }
+    )
+    return payload
 
-    task = asyncio.create_task(runner.run(state, start_node="check_clarity"))
-    _running_tasks[state.run_id] = task
 
-    return {
-        "task_id": state.run_id,
-        "status": "running",
-        "eta_seconds": 30 + req.depth * 15,
-        "poll_url": f"/v1/runs/{state.run_id}",
-        "stream_url": f"/v1/runs/{state.run_id}/stream",
-        "steer_url": f"/v1/runs/{state.run_id}/steer",
-    }
+@app.get("/v1/runs/{run_id}/poll")
+async def poll_run(run_id: str, wait_seconds: int = 25):
+    """长轮询：最多等 25s 拿结果。"""
+    ds = get_ds()
+    try:
+        return await ds.manager.poll(run_id, wait_seconds=wait_seconds)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail={"code": getattr(e, "code", "NOT_FOUND"), "message": str(e)}) from e
+
+
+@app.get("/v1/runs/{run_id}/result")
+async def result_run(run_id: str):
+    """直接拿持久化的最终结果（不等待）。"""
+    ds = get_ds()
+    result = ds.manager.result(run_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="result not available yet")
+    return result
 
 
 @app.get("/v1/runs/{run_id}")
@@ -165,16 +179,10 @@ async def get_run_events(run_id: str):
 
 @app.get("/v1/runs/{run_id}/stream")
 async def stream_run(run_id: str):
-    """SSE 流式订阅事件。"""
+    """SSE 流式订阅事件（轮询 store + 检测 manager 任务终态）。"""
     ds = get_ds()
 
     async def event_gen():
-        runner_task = _running_tasks.get(run_id)
-        if runner_task is None:
-            yield f"data: {json.dumps({'error': 'task not found'})}\n\n"
-            return
-
-        # 简化：直接把 store 里的事件流出来 + poll
         last_seq = -1
         while True:
             events = ds.list_events(run_id)
@@ -182,8 +190,14 @@ async def stream_run(run_id: str):
             for e in new:
                 last_seq = e.seq
                 yield f"data: {json.dumps(e.model_dump(mode='json'))}\n\n"
-            if runner_task.done():
+
+            # 任务结束（无 in-flight task 且 store 已 finished）→ 退出
+            run = ds.store.get_run(run_id)
+            if run and run.get("finished_at"):
                 yield "data: [DONE]\n\n"
+                break
+            if run is None:
+                yield f"data: {json.dumps({'error': 'task not found'})}\n\n"
                 break
             await asyncio.sleep(0.5)
 
@@ -193,10 +207,12 @@ async def stream_run(run_id: str):
 @app.post("/v1/runs/{run_id}/steer")
 async def steer_run(run_id: str, req: SteerRequest):
     ds = get_ds()
-    if run_id not in _running_tasks and not ds.get_run(run_id):
+    if not ds.get_run(run_id):
         raise HTTPException(status_code=404, detail="task not found")
-
-    cmd = ds.steer(run_id, req.content, scope=req.scope)
+    try:
+        cmd = ds.manager.steer(run_id, req.content, scope=req.scope)
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     return {
         "accepted": True,
         "cmd_id": cmd.cmd_id,
@@ -207,10 +223,8 @@ async def steer_run(run_id: str, req: SteerRequest):
 
 @app.delete("/v1/runs/{run_id}")
 async def cancel_run(run_id: str):
-    task = _running_tasks.pop(run_id, None)
-    if task and not task.done():
-        task.cancel()
-    return {"cancelled": True}
+    ds = get_ds()
+    return await ds.manager.cancel(run_id)
 
 
 @app.websocket("/ws/runs/{run_id}")
@@ -221,7 +235,6 @@ async def ws_run(websocket: WebSocket, run_id: str):
 
     last_seq = -1
     try:
-        # 启动两个 task：推送 + 接收
         async def push_events():
             nonlocal last_seq
             while True:
@@ -230,7 +243,8 @@ async def ws_run(websocket: WebSocket, run_id: str):
                     if e.seq > last_seq:
                         last_seq = e.seq
                         await websocket.send_json(e.model_dump(mode="json"))
-                if run_id not in _running_tasks or _running_tasks[run_id].done():
+                run = ds.store.get_run(run_id)
+                if run and run.get("finished_at"):
                     break
                 await asyncio.sleep(0.5)
 
@@ -238,8 +252,11 @@ async def ws_run(websocket: WebSocket, run_id: str):
             while True:
                 msg = await websocket.receive_json()
                 if msg.get("type") == "steer":
-                    ds.steer(run_id, msg.get("content", ""), scope=msg.get("scope", "global"))
-                    await websocket.send_json({"type": "steer_ack", "accepted": True})
+                    try:
+                        ds.manager.steer(run_id, msg.get("content", ""), scope=msg.get("scope", "global"))
+                        await websocket.send_json({"type": "steer_ack", "accepted": True})
+                    except Exception as e:
+                        await websocket.send_json({"type": "steer_ack", "accepted": False, "error": str(e)})
 
         await asyncio.gather(push_events(), recv_steer(), return_exceptions=True)
     except WebSocketDisconnect:

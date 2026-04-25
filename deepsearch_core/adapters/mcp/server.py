@@ -30,8 +30,7 @@ from deepsearch_core.facade import DeepSearch
 logger = structlog.get_logger(__name__)
 
 
-# 任务状态全局存储（v0.1 简化用 dict，v0.2 用 Redis）
-_running_tasks: dict[str, asyncio.Task] = {}
+# 全局单例 DeepSearch（其内置 RunManager 跨适配统一）
 _global_ds: DeepSearch | None = None
 
 
@@ -67,88 +66,19 @@ async def tool_start_deep_search(
 ) -> dict:
     """Launch deep search task in background, return task_id immediately."""
     ds = _get_ds()
-
-    # 构造 RunConfig 但不立即执行 — 让 deep_search 内部启动
-    from deepsearch_core.engine.state import RunConfig, State
-
-    config = RunConfig(
-        goal=query,
-        depth=depth,
-        max_agents=max_agents,
-        policy=policy,
-        timeout_seconds=300,
-    )
-    state = State(config=config)
-
-    # 异步启动
-    ctx = ds._build_context(policy)
-    runner = ds._build_runner(ctx)
-
-    task = asyncio.create_task(runner.run(state, start_node="check_clarity"))
-    _running_tasks[state.run_id] = task
-
-    return {
-        "task_id": state.run_id,
-        "status": "running",
-        "eta_seconds": 30 + depth * 15,
-        "poll_with": "poll_search",
-        "steer_with": "steer",
-        "resource_uri": f"deepsearch://task/{state.run_id}",
-    }
+    return await ds.manager.start(query=query, depth=depth, policy=policy, max_agents=max_agents)
 
 
 async def tool_poll_search(task_id: str, wait_seconds: int = 25) -> dict:
-    """Long-poll for deep search results, max 25s wait."""
+    """Long-poll for deep search results, max 25s wait. Real report returned when complete."""
     ds = _get_ds()
-    task = _running_tasks.get(task_id)
-    if task is None:
-        # 也可能已经完成并被清理，查 store
-        run = ds.get_run(task_id)
-        if run and run.get("status") == "completed":
-            return _build_completed_response(ds, task_id)
-        raise TaskNotFoundError(f"No task with id {task_id}")
-
-    try:
-        await asyncio.wait_for(asyncio.shield(task), timeout=min(wait_seconds, 25))
-    except asyncio.TimeoutError:
-        # 还在跑
-        events = ds.list_events(task_id)
-        last_event = events[-1] if events else None
-        return {
-            "task_id": task_id,
-            "status": "running",
-            "current_step": last_event.payload.get("node", "unknown") if last_event else "unknown",
-            "progress": min(0.95, len(events) / 30.0),
-            "evidence_count": sum(1 for e in events if e.type.value == "evidence_found"),
-            "still_running": True,
-        }
-
-    # 任务完成
-    return _build_completed_response(ds, task_id)
-
-
-def _build_completed_response(ds: DeepSearch, task_id: str) -> dict:
-    run = ds.get_run(task_id)
-    events = ds.list_events(task_id)
-    # 从事件流提取最终报告
-    return {
-        "task_id": task_id,
-        "status": run.get("status", "completed") if run else "unknown",
-        "final_report": "(see store for full report; v0.2 will inline)",
-        "event_count": len(events),
-        "still_running": False,
-    }
+    return await ds.manager.poll(task_id, wait_seconds=wait_seconds)
 
 
 async def tool_steer(task_id: str, command: str, scope: str = "global") -> dict:
     """Inject a steer command into a running task."""
     ds = _get_ds()
-    if task_id not in _running_tasks:
-        run = ds.get_run(task_id)
-        if not run or run.get("status") != "running":
-            raise TaskAlreadyFinishedError(f"Task {task_id} not running")
-
-    cmd = ds.steer(task_id, command, scope=scope)
+    cmd = ds.manager.steer(task_id, command, scope=scope)
     return {
         "accepted": True,
         "cmd_id": cmd.cmd_id,
@@ -159,10 +89,8 @@ async def tool_steer(task_id: str, command: str, scope: str = "global") -> dict:
 
 async def tool_cancel_search(task_id: str) -> dict:
     """Cancel a running search task."""
-    task = _running_tasks.pop(task_id, None)
-    if task and not task.done():
-        task.cancel()
-    return {"cancelled": True, "task_id": task_id}
+    ds = _get_ds()
+    return await ds.manager.cancel(task_id)
 
 
 # ============================================================

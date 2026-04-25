@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS runs (
     config_json TEXT NOT NULL,
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    finished_at TEXT
+    finished_at TEXT,
+    result_json TEXT,
+    error TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, created_at);

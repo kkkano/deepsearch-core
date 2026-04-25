@@ -82,3 +82,39 @@ def test_filter_boosts_trusted_domain(general_policy):
     # wikipedia 应该被加权到第一
     assert filtered[0].domain == "wikipedia.org"
     assert filtered[0].score > 0.5
+
+
+def test_filter_blocks_subdomain(general_policy):
+    """修复子域名 bug：reddit.com 必须能屏蔽 www.reddit.com / old.reddit.com。"""
+    policy = general_policy.model_copy(update={"blocked_domains": ["reddit.com"]})
+    results = [
+        SearchResult(url="https://www.reddit.com/r/x", title="r1", snippet="", score=0.9),
+        SearchResult(url="https://old.reddit.com/y", title="r2", snippet="", score=0.8),
+        SearchResult(url="https://reddit.com/z", title="r3", snippet="", score=0.7),
+        SearchResult(url="https://safe.com/page", title="ok", snippet="", score=0.5),
+        SearchResult(url="https://notreddit.com/x", title="other", snippet="", score=0.4),
+    ]
+    filtered = apply_policy_filter(results, policy)
+    domains = {r.domain for r in filtered}
+    # 三种 reddit 子域名都该被屏蔽
+    assert "www.reddit.com" not in domains
+    assert "old.reddit.com" not in domains
+    assert "reddit.com" not in domains
+    # 但 notreddit.com（碰巧含 reddit.com 字符串）不应被屏蔽
+    assert "notreddit.com" in domains
+    assert "safe.com" in domains
+
+
+def test_filter_blocks_wildcard():
+    """*.spam.* 通配也要继续工作。"""
+    from deepsearch_core.policy.loader import PolicyConfig
+
+    policy = PolicyConfig(name="t", blocked_domains=["*.crypto-pump.*"])
+    results = [
+        SearchResult(url="https://abc.crypto-pump.io/x", title="bad", snippet="", score=0.9),
+        SearchResult(url="https://safe.com/x", title="ok", snippet="", score=0.5),
+    ]
+    filtered = apply_policy_filter(results, policy)
+    domains = {r.domain for r in filtered}
+    assert "abc.crypto-pump.io" not in domains
+    assert "safe.com" in domains

@@ -5,7 +5,7 @@ from deepsearch_core.engine.state import RunConfig, State
 from deepsearch_core.engine.steer import SteerCommand, SteerScope
 from deepsearch_core.facade import DeepSearch
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     "DeepSearch",
     "GraphRunner",

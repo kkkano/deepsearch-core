@@ -11,7 +11,16 @@ from deepsearch_core.search.base import SearchResult
 
 
 def _matches(domain: str, pattern: str) -> bool:
-    return fnmatch.fnmatch(domain, pattern.lower())
+    """域名匹配，支持：
+    - 精确：reddit.com 匹配 reddit.com
+    - 子域名：reddit.com 匹配 www.reddit.com / old.reddit.com
+    - glob：*.spam-content.* 匹配 anything.spam-content.com
+    """
+    p = pattern.lower().strip()
+    d = domain.lower().strip()
+    if "*" in p or "?" in p or "[" in p:
+        return fnmatch.fnmatch(d, p)
+    return d == p or d.endswith("." + p)
 
 
 def apply_policy_filter(

@@ -57,6 +57,44 @@ async def test_runner_writes_events(store, basic_state):
 
 
 @pytest.mark.asyncio
+async def test_runner_run_started_event_persisted(store, basic_state):
+    """修复 #2.1 验证：第一条 RUN_STARTED 必须真的写入 events 表（外键不挡）。"""
+    async def n(state):
+        return state, END
+
+    runner = GraphRunner(nodes={"n": n}, store=store)
+    await runner.run(basic_state, start_node="n")
+
+    events = list(store.replay(basic_state.run_id))
+    # 第一条事件必须是 RUN_STARTED 并且确实落地
+    assert len(events) >= 1
+    assert events[0].type == EventType.RUN_STARTED
+    assert events[0].payload.get("goal") == basic_state.config.goal
+
+
+@pytest.mark.asyncio
+async def test_runner_node_timeout_marks_run_timeout(store):
+    """修复 #2.2 验证：单节点超时 → 整个 run 被标记为 timeout。"""
+    import asyncio
+
+    state = State(config=RunConfig(goal="x", timeout_seconds=1))
+
+    async def hang(state):
+        await asyncio.sleep(10)  # 远超 1s timeout
+        return state, END
+
+    runner = GraphRunner(nodes={"hang": hang}, store=store)
+    final = await runner.run(state, start_node="hang")
+
+    assert final.status == RunStatus.TIMEOUT
+    # 验证 events 里有 NODE_ERROR 标记 node_timeout
+    events = list(store.replay(state.run_id))
+    error_events = [e for e in events if e.type == EventType.NODE_ERROR]
+    assert error_events, "应该至少有一条 NODE_ERROR"
+    assert "timeout" in error_events[0].payload.get("error", "").lower()
+
+
+@pytest.mark.asyncio
 async def test_runner_steer_global_jumps_to_planner(store, basic_state):
     """global scope steer 让 runner 跳到 planner 节点。"""
     visited = []
@@ -71,7 +109,8 @@ async def test_runner_steer_global_jumps_to_planner(store, basic_state):
 
     runner = GraphRunner(nodes={"planner": planner, "researcher": researcher}, store=store)
 
-    # 预先注入 steer
+    # 修复 #2.1 后外键启用：必须先 create_run 才能加 steer
+    store.create_run(basic_state)
     store.add_steer(basic_state.run_id, "重点看 X", SteerScope.GLOBAL)
 
     final = await runner.run(basic_state, start_node="researcher")
@@ -91,6 +130,7 @@ async def test_runner_steer_current_step_inline(store, basic_state):
         return state, END
 
     runner = GraphRunner(nodes={"n": n}, store=store)
+    store.create_run(basic_state)
     store.add_steer(basic_state.run_id, "narrow scope", SteerScope.CURRENT_STEP)
 
     final = await runner.run(basic_state, start_node="n")

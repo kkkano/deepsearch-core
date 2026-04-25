@@ -60,6 +60,42 @@ class EventStore:
                 (status, finished_at.isoformat() if finished_at else None, run_id),
             )
 
+    def finish_run(self, state: State) -> None:
+        """运行结束时持久化最终结果（report / evidence / critic / token_usage / error）。"""
+        result = {
+            "report": state.report.model_dump(mode="json") if state.report else None,
+            "evidence": [e.model_dump(mode="json") for e in state.evidence],
+            "critic": state.critic_report.model_dump(mode="json") if state.critic_report else None,
+            "token_usage": state.token_usage.model_dump(mode="json"),
+            "elapsed_seconds": state.elapsed_seconds(),
+            "step_count": state.step_count,
+        }
+        with self._lock:
+            self._conn.execute(
+                "UPDATE runs SET status=?, finished_at=?, result_json=?, error=? WHERE run_id=?",
+                (
+                    state.status.value,
+                    (state.finished_at or datetime.utcnow()).isoformat(),
+                    json.dumps(result, default=str, ensure_ascii=False),
+                    state.last_error,
+                    state.run_id,
+                ),
+            )
+
+    def get_run_result(self, run_id: str) -> dict[str, Any] | None:
+        """读取已持久化的最终结果。未结束返回 None。"""
+        cur = self._conn.execute("SELECT result_json, error FROM runs WHERE run_id=?", (run_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        result_json, error = row
+        if not result_json:
+            return None
+        data = json.loads(result_json)
+        if error:
+            data["error"] = error
+        return data
+
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         cur = self._conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,))
         row = cur.fetchone()
