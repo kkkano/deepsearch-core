@@ -1,0 +1,5 @@
+{"id": "f001", "query": "腾讯 2025Q4 财报 AI 业务进展", "policy": "finance", "expected_facts": ["腾讯", "AI"], "expected_sources_include": ["tencent.com"], "max_seconds": 60}
+{"id": "f002", "query": "美联储 2026-04 FOMC 会议预期", "policy": "finance", "expected_facts": ["FOMC", "利率"], "expected_sources_include": ["federalreserve.gov"], "max_seconds": 60}
+{"id": "f003", "query": "Tesla Q4 2025 vehicle deliveries", "policy": "finance", "expected_facts": ["Tesla", "deliveries"], "expected_min_sources": 2, "max_seconds": 60}
+{"id": "f004", "query": "中国新能源车出口数据 2026", "policy": "finance", "expected_facts": ["新能源", "出口"], "expected_min_sources": 2, "max_seconds": 60}
+{"id": "f005", "query": "Nvidia data center revenue trend", "policy": "finance", "expected_facts": ["Nvidia", "data center"], "expected_min_sources": 2, "max_seconds": 60}

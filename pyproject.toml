@@ -1,0 +1,98 @@
+[project]
+name = "deepsearch-core"
+version = "0.1.0"
+description = "Protocol-agnostic deep research engine. One core, many adapters: MCP / HTTP / CLI / SDK."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "kkkano", email = "657394554@qq.com" },
+]
+keywords = ["deep-research", "mcp", "agent", "search", "rag", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    # 核心：仿 ODR 极简 5 依赖
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.7.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    # 配置 + 日志
+    "pyyaml>=6.0",
+    "structlog>=24.0",
+    # CLI
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+    # MCP
+    "mcp>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.12",
+    "ruff>=0.5.0",
+    "mypy>=1.10",
+    "respx>=0.21",  # httpx mock
+]
+reranker = [
+    "cohere>=5.5.0",
+]
+local-reranker = [
+    "FlagEmbedding>=1.2.0",  # bge-reranker-v2
+    "torch>=2.3.0",
+]
+all = [
+    "deepsearch-core[dev,reranker,local-reranker]",
+]
+
+[project.scripts]
+deepsearch = "deepsearch_core.adapters.cli.main:app"
+deepsearch-mcp = "deepsearch_core.adapters.mcp.server:main"
+deepsearch-server = "deepsearch_core.adapters.http.app:run"
+
+[project.urls]
+Homepage = "https://github.com/kkkano/deepsearch-core"
+Repository = "https://github.com/kkkano/deepsearch-core"
+Issues = "https://github.com/kkkano/deepsearch-core/issues"
+Documentation = "https://github.com/kkkano/deepsearch-core/tree/main/docs"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["deepsearch_core"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "-v --strict-markers"
+markers = [
+    "integration: integration tests (requires API keys)",
+    "slow: slow tests (>5s)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501"]  # line-too-long handled by formatter
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true

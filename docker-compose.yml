@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  deepsearch:
+    build: .
+    image: deepsearch-core:latest
+    container_name: deepsearch
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+      - "8765:8765"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+# 可选：加 Redis 缓存（v0.2）
+#  redis:
+#    image: redis:7-alpine
+#    container_name: deepsearch-redis
+#    restart: unless-stopped
+#    volumes:
+#      - redis_data:/data
+#
+#volumes:
+#  redis_data:

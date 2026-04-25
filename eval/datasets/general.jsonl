@@ -1,0 +1,5 @@
+{"id": "g001", "query": "What is the Model Context Protocol (MCP)?", "policy": "tech", "expected_facts": ["Anthropic", "open standard", "tools", "resources"], "expected_min_sources": 2, "max_seconds": 30}
+{"id": "g002", "query": "What's new in Claude 4.7?", "policy": "tech", "expected_facts": ["1M context", "Opus", "April 2026"], "expected_min_sources": 2, "max_seconds": 30}
+{"id": "g003", "query": "Capital of France", "policy": "general", "expected_facts": ["Paris"], "expected_min_sources": 1, "max_seconds": 10}
+{"id": "g004", "query": "Latest GPT-5 features", "policy": "tech", "expected_facts": ["OpenAI"], "expected_min_sources": 2, "max_seconds": 30}
+{"id": "g005", "query": "Difference between RAG and fine-tuning", "policy": "tech", "expected_facts": ["retrieval", "training"], "expected_min_sources": 2, "max_seconds": 30}

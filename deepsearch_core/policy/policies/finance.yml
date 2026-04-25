@@ -1,0 +1,77 @@
+name: finance
+display_name: "Financial Research"
+description: "Deep research with SEC, FOMC, Bloomberg-grade sources"
+version: 1
+language: "zh-CN, en-US"
+
+trusted_domains:
+  - sec.gov
+  - federalreserve.gov
+  - bls.gov
+  - bloomberg.com
+  - reuters.com
+  - ft.com
+  - wsj.com
+  - hkex.com.hk
+  - sse.com.cn
+  - eastmoney.com
+  - cninfo.com.cn
+  - tencent.com
+  - alibaba.com
+  - 10jqka.com.cn
+weight_boost: 2.0
+
+blocked_domains:
+  - reddit.com
+  - quora.com
+  - "*.crypto-pump.*"
+  - "*.pennystock-spam.*"
+
+academic_sources:
+  enabled: true
+  crossref: true
+  ssrn: true
+  arxiv: false
+  semantic_scholar: false
+
+search_keywords:
+  - keyword: "财报"
+    augment: ["10-Q", "10-K", "annual report", "earnings call"]
+  - keyword: "美联储"
+    augment: ["FOMC minutes", "Fed dot plot", "Federal Reserve"]
+  - keyword: "估值"
+    augment: ["P/E", "EV/EBITDA", "DCF model"]
+  - keyword: "earnings"
+    augment: ["10-Q filing", "earnings call transcript"]
+
+prompt_addons:
+  researcher: |
+    Focus on:
+    - Quantitative data (revenue, margin, growth %)
+    - Forward guidance from earnings calls
+    - Analyst consensus from credible sources
+    - Macro context (interest rates, FX, commodities)
+
+    Always cite filing date and source domain.
+    Never speculate beyond what filings state.
+  critic: |
+    Pay special attention to:
+    - Conflicts between SEC filings vs analyst opinions
+    - Survivorship bias in performance claims
+    - Look-ahead bias in backtests
+    - Forward-looking statements with regulatory disclaimers
+  reporter: |
+    Format final report with:
+    - Executive Summary (3 bullets)
+    - Financial Highlights (table)
+    - Key Risks (numbered list)
+    - Sources (with filing dates)
+
+freshness:
+  prefer_within_days: 30
+  decay_factor: 0.9
+
+citation:
+  min_sources: 3
+  prefer_primary: true
+  require_filing_date: true

@@ -1,0 +1,65 @@
+name: academic
+display_name: "Academic Research"
+description: "Strict academic mode: peer-reviewed only"
+version: 1
+language: "en-US"
+
+trusted_domains:
+  - arxiv.org
+  - nature.com
+  - science.org
+  - acm.org
+  - ieee.org
+  - jstor.org
+  - sciencedirect.com
+  - springer.com
+  - wiley.com
+  - tandfonline.com
+weight_boost: 3.0
+
+blocked_domains:
+  - reddit.com
+  - quora.com
+  - "*.preprint-mill.*"
+  - "*.fake-journal.*"
+
+academic_sources:
+  enabled: true
+  crossref: true
+  arxiv: true
+  semantic_scholar: true
+  ssrn: true
+
+search_keywords:
+  - keyword: "research"
+    augment: ["peer-reviewed", "DOI"]
+  - keyword: "study"
+    augment: ["clinical trial", "meta-analysis"]
+
+prompt_addons:
+  researcher: |
+    Strict academic mode. Only cite:
+    - Peer-reviewed journals
+    - Conference proceedings
+    - arxiv preprints (with caveat noting unreviewed)
+    - Books from academic publishers
+
+    Always include DOI when available. Use IEEE-style citations.
+  critic: |
+    Verify:
+    - Sample sizes and methodology
+    - Replication status
+    - Conflicts of interest
+    - Whether claims are within the study's scope
+  reporter: |
+    Structure with abstract, methodology, findings, limitations, references.
+    Use IEEE citation format throughout.
+
+freshness:
+  prefer_within_days: 1825  # 5 years
+  decay_factor: 0.995
+
+citation:
+  min_sources: 3
+  format: "ieee"
+  require_doi: true

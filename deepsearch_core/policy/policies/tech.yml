@@ -1,0 +1,54 @@
+name: tech
+display_name: "Technology Research"
+description: "Tech research preferring official docs, GitHub, arxiv"
+version: 1
+language: "en-US, zh-CN"
+
+trusted_domains:
+  - github.com
+  - arxiv.org
+  - openai.com
+  - anthropic.com
+  - news.ycombinator.com
+  - blog.cloudflare.com
+  - vercel.com
+  - stripe.com
+  - nvidia.com
+  - microsoft.com
+  - google.com
+  - apple.com
+weight_boost: 2.0
+
+blocked_domains:
+  - "*.medium-spam.*"
+  - "*.aigc-content-farm.*"
+
+academic_sources:
+  enabled: true
+  arxiv: true
+  semantic_scholar: true
+  crossref: true
+
+search_keywords:
+  - keyword: "benchmark"
+    augment: ["evaluation", "leaderboard"]
+  - keyword: "model"
+    augment: ["paper", "arxiv", "huggingface"]
+  - keyword: "framework"
+    augment: ["GitHub", "documentation", "tutorial"]
+
+prompt_addons:
+  researcher: |
+    Prefer official documentation, GitHub repos, and arxiv papers.
+    Cite specific commit hashes and paper arxiv IDs when relevant.
+    Distinguish between research papers and production usage.
+  critic: |
+    Watch for: marketing claims vs reproducible benchmarks; release announcements vs actual availability.
+
+freshness:
+  prefer_within_days: 90
+  decay_factor: 0.92
+
+citation:
+  min_sources: 2
+  prefer_primary: true

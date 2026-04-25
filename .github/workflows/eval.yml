@@ -1,0 +1,27 @@
+name: Eval Harness
+
+on:
+  pull_request:
+    paths:
+      - 'deepsearch_core/**'
+      - 'eval/datasets/**'
+  workflow_dispatch:
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.LLM_API_KEY != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+
+      - run: uv sync --all-extras
+
+      - name: Run eval (subset)
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+        run: uv run python eval/runner.py --dataset general

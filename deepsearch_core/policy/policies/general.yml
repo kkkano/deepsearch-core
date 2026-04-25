@@ -1,0 +1,36 @@
+name: general
+display_name: "General Web Research"
+description: "Default policy for broad web research"
+version: 1
+language: "en-US, zh-CN"
+
+trusted_domains:
+  - wikipedia.org
+  - github.com
+  - mit.edu
+  - stanford.edu
+weight_boost: 1.5
+
+blocked_domains:
+  - "*.spam-content.*"
+  - "*.fake-news.*"
+
+academic_sources:
+  enabled: false
+
+search_keywords: []
+
+prompt_addons:
+  researcher: |
+    Be objective. Cite multiple sources for any non-trivial claim.
+    Prefer primary sources over secondary commentary.
+  critic: |
+    Look for inconsistencies between sources. Flag any claim that lacks citation.
+
+freshness:
+  prefer_within_days: 365
+  decay_factor: 0.99
+
+citation:
+  min_sources: 2
+  format: "inline"
