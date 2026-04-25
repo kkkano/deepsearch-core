@@ -1,13 +1,24 @@
 """MCP Server：暴露 quick_search / start_deep_search / poll_search / steer / cancel_search 工具。
 
-支持三种 transport：
-  - stdio (默认，Claude Desktop / Cursor)
+支持的 transport（v0.1.x）：
+  - stdio (✅ 已实现，Claude Desktop / Cursor / Cline)
+
+计划在 v0.2 提供：
   - http (Cherry Studio / 远程)
-  - sse  (兼容老客户端)
+  - sse / streamable-http (2025 spec)
+
+如果当前版本需要远程访问，请改用 HTTP API（FastAPI on port 8000），路由覆盖
+与 MCP 工具一一对应：
+  - POST /v1/search/quick       ↔ quick_search
+  - POST /v1/search/deep/async  ↔ start_deep_search
+  - GET  /v1/runs/{id}/poll     ↔ poll_search
+  - POST /v1/runs/{id}/steer    ↔ steer
+  - DELETE /v1/runs/{id}        ↔ cancel_search
 
 启动：
-  python -m deepsearch_core.adapters.mcp                      # stdio
-  python -m deepsearch_core.adapters.mcp --transport http     # HTTP
+  python -m deepsearch_core.adapters.mcp                      # stdio (only)
+  # 远程访问改用 HTTP API:
+  uvicorn deepsearch_core.adapters.http.app:app --port 8000
 """
 
 from __future__ import annotations

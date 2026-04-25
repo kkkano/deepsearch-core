@@ -61,16 +61,30 @@ class EventStore:
     # ---------- runs ----------
 
     def create_run(self, state: State) -> None:
+        """幂等创建 / 更新 runs 行。
+
+        ---- 修复 v0.1.3 HIGH ----
+        旧实现 INSERT OR REPLACE 会删除已有父行，触发 steer_commands / events
+        子表 FK 级联删除（即便事先 PRAGMA foreign_keys=ON 也是危险的）。
+        改为 INSERT OR IGNORE + UPDATE，确保已有子表数据不被冲掉，并保证
+        manager.start() 同步落 store 后 runner.run() 内部再次 create_run 也安全。
+        """
+        config_json = state.config.model_dump_json()
         with self._lock:
             self._conn.execute(
-                "INSERT OR REPLACE INTO runs (run_id, goal, config_json, status, created_at) VALUES (?,?,?,?,?)",
+                "INSERT OR IGNORE INTO runs (run_id, goal, config_json, status, created_at) VALUES (?,?,?,?,?)",
                 (
                     state.run_id,
                     state.config.goal,
-                    state.config.model_dump_json(),
+                    config_json,
                     state.status.value,
                     state.started_at.isoformat(),
                 ),
+            )
+            # 已存在的 run：仅刷新可变字段（status / config_json / goal）
+            self._conn.execute(
+                "UPDATE runs SET status=?, config_json=?, goal=? WHERE run_id=?",
+                (state.status.value, config_json, state.config.goal, state.run_id),
             )
 
     def update_run_status(self, run_id: str, status: str, finished_at: datetime | None = None) -> None:

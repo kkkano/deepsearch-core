@@ -274,13 +274,16 @@ template: |
 
 ## 5. Transport（传输层）
 
-MCP 三种 transport，deepsearch-core 全支持：
+> ⚠️ **v0.1.x 状态**：仅 `stdio` 落地，HTTP/SSE/streamable-http 计划于 v0.2 提供。
+> 当前需要远程访问的客户端（Cherry Studio / 小龙虾 / 自研 bot）请改用 **HTTP API**
+> (`uvicorn deepsearch_core.adapters.http.app:app --port 8000`)，路由功能与 MCP
+> 工具完全对齐。
 
-| Transport | 用途 | 启动 |
-|-----------|------|------|
-| **stdio** | 本地、Claude Desktop / Cursor 默认 | `python -m deepsearch_core.adapters.mcp` |
-| **HTTP+SSE** | 远程、Cherry Studio / Web | `--transport http --port 8765` |
-| **Streamable HTTP** | 2025 新标准，单连接双向 | `--transport streamable-http` |
+| Transport | v0.1.x 状态 | 用途 | 启动 |
+|-----------|------------|------|------|
+| **stdio** | ✅ 已实现 | 本地，Claude Desktop / Cursor / Cline | `python -m deepsearch_core.adapters.mcp` |
+| **HTTP+SSE** | 🚧 v0.2 | 远程，Cherry Studio / Web | _v0.2 提供_ |
+| **Streamable HTTP** | 🚧 v0.2 | 2025 新标准，单连接双向 | _v0.2 提供_ |
 
 ### 5.1 Claude Desktop 配置示例
 

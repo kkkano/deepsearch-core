@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-25 — Third-Round Reviewer Feedback (Lifecycle Race)
+
+> Single source of truth: `start()` only returns once durable state is on disk.
+> Closes the lifecycle race that broke immediate `steer` / `cancel` calls.
+
+### Fixed (HIGH — single source of truth)
+
+- **Synchronous run row creation** (`engine/manager.py`): `start()` now writes
+  the `runs` row to SQLite *before* returning the `task_id`. Previously the
+  insert happened only after `runner.run()` was scheduled, so:
+  - `start → immediate steer` raised `IntegrityError: FOREIGN KEY constraint failed`
+  - `start → immediate cancel` returned `cancelled=True` but left no audit
+    record (no `runs` row in store)
+  - `GET /v1/runs/{id}` could 404 in the small window after `start` returned
+- **Idempotent create_run** (`store/store.py`): switched from
+  `INSERT OR REPLACE` to `INSERT OR IGNORE` + `UPDATE`. The old REPLACE could
+  delete an existing parent row, cascading through `steer_commands` /
+  `events` foreign keys and erasing pending steer commands. The new path is
+  safe to call from both `manager.start` (initial insert) and `runner.run`
+  (status refresh).
+- **Cancel audit fallback** (`engine/manager.py`): if the runner task is
+  cancelled before its `except CancelledError` block runs (rare but possible
+  for very fast cancels), `cancel()` now explicitly transitions the store
+  status to `cancelled` so the audit chain stays intact.
+
+### Fixed (MEDIUM)
+
+- **`error` field type stability** (`engine/manager.py`): the
+  `_build_completed_payload` `error` field is now strictly `str | None` — never
+  `bool`. Old code's `... or run.get("status") == "failed"` could leak `True`
+  into JSON responses, breaking strict client deserialisers.
+- **`EVIDENCE_FOUND` event verified** (`engine/runner.py`, tests): the runner
+  emits `EVIDENCE_FOUND` after each node when `len(state.evidence)` grows.
+  Previously the v0.1.2 implementation was correct but untested; v0.1.3 ships
+  two regression tests that exercise the path so progress reporting in
+  `RunManager._build_partial_payload` no longer silently regresses.
+- **MCP transport docs aligned with reality** (`docs/MCP_PROTOCOL.md`,
+  `README.md`, `adapters/mcp/server.py`): clearly mark stdio as the only
+  shipping transport in v0.1.x. HTTP / SSE / streamable-http land in v0.2.
+  Remote clients (Cherry Studio, custom bots) are pointed at the HTTP API
+  with a route-by-route mapping.
+
+### Tests
+
+- `test_lifecycle_race.py` (4 cases) — the three race scenarios reviewer
+  asked for, plus an idempotent-`create_run` regression that protects steer
+  rows.
+- `test_evidence_event.py` (2 cases) — runner emits `EVIDENCE_FOUND` when
+  evidence grows, stays silent otherwise.
+- `test_completed_payload_error.py` (4 cases) — `error` field is `str | None`
+  for every status; explicit assertion that it's never `bool`.
+
+Total: **67 unit tests passing** (was 57 in v0.1.2).
+
 ## [0.1.2] - 2026-04-25 — Second-Round Reviewer Feedback
 
 > Tightens the runtime so it can drive Cherry Studio / Telegram bots without

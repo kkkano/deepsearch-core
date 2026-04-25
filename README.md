@@ -33,15 +33,16 @@ deepsearch quick "腾讯港股最新风险"
 deepsearch deep "美联储 2026 政策展望" --depth 3 --policy finance --stream
 ```
 
-### 2. MCP Server（推荐，可被 Claude Desktop / Cherry Studio / Cursor 直接调）
+### 2. MCP Server（推荐，可被 Claude Desktop / Cursor / Cline 直接调）
 
 ```bash
 # 一行安装到 Claude Code
 claude mcp add deepsearch -- python -m deepsearch_core.adapters.mcp
-
-# 或者手动启动 HTTP 模式
-python -m deepsearch_core.adapters.mcp --transport http --port 8765
 ```
+
+> ⚠️ **v0.1.x**: MCP server 仅支持 stdio transport（适合本地客户端）。
+> Cherry Studio / 远程客户端请使用下面的 HTTP API（`/v1/search/*` 路由），
+> MCP 的 HTTP/SSE transport 计划于 v0.2 提供。
 
 然后在 Claude Desktop 的对话里：
 > 「帮我深度研究下 OpenAI 最近的开源模型策略」

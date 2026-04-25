@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -71,7 +72,14 @@ class RunManager:
             timeout_seconds=timeout_seconds or engine_cfg.task_timeout_seconds,
             enable_steer=enable_steer,
         )
-        state = State(config=config)
+        # ---- 修复 v0.1.3 HIGH：单一真相源 ----
+        # start() 必须在返回 task_id 之前同步把 runs 行落 store，否则：
+        #  - 立刻 steer 触发外键失败
+        #  - 立刻 cancel 时审计链断（store 里没记录）
+        #  - GET /v1/runs/{id} 短暂 404
+        state = State(config=config).with_update(status=RunStatus.RUNNING)
+        self.ds.store.create_run(state)
+
         ctx = self.ds._build_context(policy)
         runner = self.ds._build_runner(ctx)
 
@@ -169,6 +177,17 @@ class RunManager:
             citations = (report.get("citations") if report else []) or []
             critic = persisted.get("critic")
             token_usage = persisted.get("token_usage")
+
+        # ---- 修复 v0.1.3 MEDIUM：error 字段统一为 None | str ----
+        # 旧实现 `(persisted or {}).get("error") or run.get("status") == "failed"`
+        # 会让字段在三种类型间漂移（None / str / bool），调用方难处理。
+        error: str | None = None
+        persisted_error = (persisted or {}).get("error")
+        if persisted_error:
+            error = str(persisted_error)
+        elif run.get("status") in {"failed", "timeout", "cancelled"}:
+            error = run.get("status")  # 没有具体消息时至少给出失败原因
+
         return {
             "task_id": task_id,
             "status": run.get("status", "unknown"),
@@ -176,7 +195,7 @@ class RunManager:
             "citations": citations,
             "critic": critic,
             "token_usage": token_usage,
-            "error": (persisted or {}).get("error") or run.get("status") == "failed",
+            "error": error,
             "still_running": False,
         }
 
@@ -222,6 +241,15 @@ class RunManager:
             pass
         except Exception:
             logger.exception("cancel_swallowed", task_id=task_id)
+
+        # ---- 修复 v0.1.3 HIGH 兜底：CancelledError 可能在 runner.run() 入口前抛出，
+        # 来不及走 finish_run 路径，store 仍是 running。这里强制收尾。 ----
+        run = self.ds.store.get_run(task_id)
+        terminal = {"completed", "failed", "timeout", "cancelled"}
+        if run and run.get("status") not in terminal:
+            self.ds.store.update_run_status(
+                task_id, RunStatus.CANCELLED.value, finished_at=datetime.utcnow()
+            )
         # add_done_callback 已自动清理 _tasks/_completion_events
         return {"cancelled": True, "task_id": task_id, "status": "cancelled"}
 
