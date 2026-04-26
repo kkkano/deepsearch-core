@@ -2,16 +2,37 @@
 
 from __future__ import annotations
 
-import json
-
 import structlog
 
 from deepsearch_core.agents.base import AgentContext
 from deepsearch_core.engine.state import Plan, State, SubQuery
-from deepsearch_core.llm.client import Message
+from deepsearch_core.llm.client import Message, json_object, parse_json_payload
 from deepsearch_core.prompts import PLANNER_SYSTEM_PROMPT
 
 logger = structlog.get_logger(__name__)
+
+
+def _normalize_plan_payload(data: object) -> dict:
+    payload = json_object(data)
+    items = payload.get("items")
+    if isinstance(items, list):
+        if len(items) == 1 and isinstance(items[0], dict) and "sub_queries" in items[0]:
+            return items[0]
+        payload["sub_queries"] = items
+    return payload
+
+
+def _normalize_sub_query(raw: object) -> dict:
+    if isinstance(raw, str):
+        return {"text": raw, "angle": "general", "priority": 5}
+    if isinstance(raw, dict):
+        text = raw.get("text") or raw.get("query") or raw.get("q") or raw.get("question")
+        return {
+            "text": str(text or ""),
+            "angle": str(raw.get("angle") or raw.get("source_type") or "general"),
+            "priority": raw.get("priority", 5),
+        }
+    return {"text": "", "angle": "general", "priority": 5}
 
 
 def make_planner_node(ctx: AgentContext):
@@ -49,9 +70,9 @@ def make_planner_node(ctx: AgentContext):
                 max_tokens=2000,
                 response_format={"type": "json_object"},
             )
-            data = json.loads(resp.content)
+            data = _normalize_plan_payload(parse_json_payload(resp.content))
             state.token_usage.add(resp.prompt_tokens, resp.completion_tokens, resp.cached_tokens)
-        except (json.JSONDecodeError, Exception) as e:
+        except Exception as e:
             logger.warning("planner_fallback", error=str(e))
             # Fallback: 单 query 直通
             data = {
@@ -60,15 +81,18 @@ def make_planner_node(ctx: AgentContext):
                 "expected_outputs": ["Direct answer to the goal"],
             }
 
-        sub_queries = [
-            SubQuery(
-                text=sq.get("text", ""),
-                angle=sq.get("angle", "general"),
-                priority=int(sq.get("priority", 5)),
+        sub_queries = []
+        for item in data.get("sub_queries", []):
+            sq = _normalize_sub_query(item)
+            if not sq["text"]:
+                continue
+            sub_queries.append(
+                SubQuery(
+                    text=sq["text"],
+                    angle=sq["angle"],
+                    priority=int(sq["priority"]),
+                )
             )
-            for sq in data.get("sub_queries", [])
-            if sq.get("text")
-        ]
 
         # 兜底：保证至少一个 sub_query
         if not sub_queries:

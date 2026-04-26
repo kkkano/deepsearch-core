@@ -142,7 +142,7 @@ class DeepSearch:
         query: str,
         policy: str = "general",
         max_results: int = 5,
-        timeout_seconds: int = 12,
+        timeout_seconds: int = 30,
         **extra: Any,
     ) -> dict[str, Any]:
         """单轮快速搜索（Fast Lane，<8s 目标）。

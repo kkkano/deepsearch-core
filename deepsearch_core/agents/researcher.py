@@ -8,8 +8,6 @@ import structlog
 
 from deepsearch_core.agents.base import AgentContext
 from deepsearch_core.engine.state import Evidence, SubQuery
-from deepsearch_core.llm.client import Message
-from deepsearch_core.prompts import RESEARCHER_SYSTEM_PROMPT
 from deepsearch_core.retrieval.dedup import deduplicate_results
 from deepsearch_core.retrieval.policy_filter import apply_policy_filter
 from deepsearch_core.search.base import SearchResult
@@ -78,14 +76,17 @@ class ResearcherAgent:
 
         # 6. 全文抽取（top-3 only，省 latency）
         if self.ctx.readers:
-            for r in filtered[:3]:
+            reader = self.ctx.readers[0]
+
+            async def _safe_read(r: SearchResult) -> None:
                 try:
-                    reader = self.ctx.readers[0]
-                    full = await reader.read(r.url)
+                    full = await asyncio.wait_for(reader.read(r.url), timeout=6.0)
                     if full:
                         r.full_text = full[:5000]
                 except Exception as e:
                     logger.warning("reader_failed", url=r.url, error=str(e))
+
+            await asyncio.gather(*[_safe_read(r) for r in filtered[:3]])
 
         # 7. 转 Evidence
         evidence = [

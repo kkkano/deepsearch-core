@@ -1,6 +1,7 @@
 # Blueprint（路线图蓝图）
 
 > 从 v0.1（PoC）到 v1.0（生产）的完整演进路线。
+> 生产级验收标准见 [`PRODUCTION_SPEC.md`](PRODUCTION_SPEC.md)，执行队列见 [`PRODUCTION_TODO.md`](PRODUCTION_TODO.md)。
 
 ---
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from deepsearch_core.engine.manager import RunManager
 
 

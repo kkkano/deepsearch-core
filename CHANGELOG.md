@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Production hardening spec** (`docs/PRODUCTION_SPEC.md`): defines what
+  "production-grade" means for deepsearch-core, including SLOs, API contracts,
+  provider compatibility, search/retrieval quality, eval gates, observability,
+  security, persistence, deployment, and release gates.
+- **Production TODO** (`docs/PRODUCTION_TODO.md`): turns the production spec
+  into a P0-P4 execution queue with file targets, acceptance criteria, and
+  release milestones.
+- **Repository agent notes** (`AGENTS.md`): records the repository tree,
+  module boundaries, documentation responsibilities, and quality commands for
+  future architecture changes.
+
 ## [0.1.3] - 2026-04-25 — Third-Round Reviewer Feedback (Lifecycle Race)
 
 > Single source of truth: `start()` only returns once durable state is on disk.

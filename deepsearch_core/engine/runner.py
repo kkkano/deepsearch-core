@@ -90,7 +90,7 @@ class GraphRunner:
                 # ---- 修复 #2.2：节点级 wait_for(remaining) 防止单节点 hang ----
                 try:
                     new_state, next_node = await asyncio.wait_for(node_fn(state), timeout=remaining)
-                except asyncio.TimeoutError as e:
+                except TimeoutError as e:
                     logger.warning("node_timeout", run_id=state.run_id, node=current, remaining=remaining)
                     await self._emit(
                         state.run_id,
@@ -133,7 +133,7 @@ class GraphRunner:
             state = state.with_update(status=RunStatus.COMPLETED, finished_at=datetime.utcnow())
             await self._emit(state.run_id, EventType.RUN_FINISHED, {"status": "completed"})
 
-        except asyncio.CancelledError as e:
+        except asyncio.CancelledError:
             # ---- 修复 #2.3：单独捕获 CancelledError，落 RUN_CANCELLED ----
             state = state.with_update(
                 status=RunStatus.CANCELLED,

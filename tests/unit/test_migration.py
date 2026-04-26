@@ -6,8 +6,6 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from deepsearch_core.store.store import EventStore
 
 

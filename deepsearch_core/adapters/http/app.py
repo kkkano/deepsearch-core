@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
 
 import structlog
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -20,8 +19,7 @@ from pydantic import BaseModel, Field
 
 from deepsearch_core import __version__
 from deepsearch_core.config import get_config
-from deepsearch_core.engine.state import RunConfig, State
-from deepsearch_core.exceptions import DeepSearchError, TaskNotFoundError
+from deepsearch_core.exceptions import DeepSearchError
 from deepsearch_core.facade import DeepSearch
 
 logger = structlog.get_logger(__name__)
@@ -59,6 +57,7 @@ class QuickSearchRequest(BaseModel):
     query: str
     policy: str = "general"
     max_results: int = 5
+    timeout_seconds: int = Field(default=30, ge=5, le=120)
 
 
 class DeepSearchRequest(BaseModel):
@@ -94,10 +93,15 @@ def health():
 async def quick_search(req: QuickSearchRequest):
     ds = get_ds()
     try:
-        result = await ds.quick_search(req.query, policy=req.policy)
+        result = await ds.quick_search(
+            req.query,
+            policy=req.policy,
+            max_results=req.max_results,
+            timeout_seconds=req.timeout_seconds,
+        )
         return result
     except DeepSearchError as e:
-        raise HTTPException(status_code=500, detail=e.to_dict())
+        raise HTTPException(status_code=500, detail=e.to_dict()) from e
 
 
 @app.post("/v1/search/deep")
@@ -115,7 +119,7 @@ async def deep_search(req: DeepSearchRequest):
         )
         return result
     except DeepSearchError as e:
-        raise HTTPException(status_code=500, detail=e.to_dict())
+        raise HTTPException(status_code=500, detail=e.to_dict()) from e
 
 
 @app.post("/v1/search/deep/async")

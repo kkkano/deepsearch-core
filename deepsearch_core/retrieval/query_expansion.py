@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
-
 import structlog
 
-from deepsearch_core.llm.client import LLMClient, Message
+from deepsearch_core.llm.client import LLMClient, Message, json_list, parse_json_payload
 
 logger = structlog.get_logger(__name__)
 
@@ -36,18 +34,14 @@ class QueryExpander:
             model=self.model,
             messages=[Message(role="user", content=prompt)],
             temperature=0.5,
-            max_tokens=300,
+            max_tokens=1000,
             response_format={"type": "json_object"},
         )
         try:
-            content = resp.content.strip()
-            # 兼容 LLM 可能输出对象包裹数组
-            data = json.loads(content)
-            if isinstance(data, dict):
-                data = next(iter(data.values()), [])
-            if not isinstance(data, list):
+            data = json_list(parse_json_payload(resp.content))
+            if not data:
                 return [question]
             return [question, *[str(q) for q in data[:n]]]
-        except json.JSONDecodeError:
+        except ValueError:
             logger.warning("query_expansion_parse_failed", content=resp.content[:100])
             return [question]

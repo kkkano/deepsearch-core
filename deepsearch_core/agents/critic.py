@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
-
 import structlog
 
 from deepsearch_core.agents.base import AgentContext
 from deepsearch_core.engine.state import CriticReport, State
-from deepsearch_core.llm.client import Message
+from deepsearch_core.llm.client import Message, json_object, parse_json_payload
 from deepsearch_core.prompts import CRITIC_SYSTEM_PROMPT
 
 logger = structlog.get_logger(__name__)
@@ -41,10 +39,10 @@ def make_critic_node(ctx: AgentContext):
                     Message(role="user", content=user_prompt),
                 ],
                 temperature=0.2,
-                max_tokens=1500,
+                max_tokens=3000,
                 response_format={"type": "json_object"},
             )
-            data = json.loads(resp.content)
+            data = json_object(parse_json_payload(resp.content))
             state.token_usage.add(resp.prompt_tokens, resp.completion_tokens, resp.cached_tokens)
         except Exception as e:
             logger.warning("critic_fallback", error=str(e))

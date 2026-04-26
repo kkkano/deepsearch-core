@@ -11,7 +11,6 @@ import asyncio
 
 from deepsearch_core import DeepSearch
 
-
 CUSTOM_POLICY = {
     "name": "crypto",
     "display_name": "Crypto Research",

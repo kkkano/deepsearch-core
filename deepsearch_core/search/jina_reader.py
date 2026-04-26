@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 class JinaReader(BaseReader):
     name = "jina_reader"
 
-    def __init__(self, api_key: str = "", timeout: float = 30.0):
+    def __init__(self, api_key: str = "", timeout: float = 8.0):
         headers: dict[str, str] = {"Accept": "text/markdown"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"

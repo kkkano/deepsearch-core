@@ -32,7 +32,7 @@ class CrossrefSearch(BaseSearch):
         self.mailto = mailto
 
     async def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
-        params = {
+        params: dict[str, str | int] = {
             "query": query,
             "rows": max_results,
             "sort": "relevance",

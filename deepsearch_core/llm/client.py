@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 
@@ -22,6 +23,81 @@ from pydantic import BaseModel
 from deepsearch_core.exceptions import LLMError
 
 logger = structlog.get_logger(__name__)
+
+
+_JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
+
+
+def parse_json_payload(content: str) -> Any:
+    """Parse provider JSON output, including fenced or text-wrapped JSON."""
+    text = content.strip()
+    fenced = _JSON_FENCE_RE.match(text)
+    if fenced:
+        text = fenced.group(1).strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    start_candidates = [idx for idx in (text.find("{"), text.find("[")) if idx >= 0]
+    if not start_candidates:
+        raise json.JSONDecodeError("No JSON object or array found", text, 0)
+
+    start = min(start_candidates)
+    opening = text[start]
+    closing = "}" if opening == "{" else "]"
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for idx in range(start, len(text)):
+        char = text[idx]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == opening:
+            depth += 1
+        elif char == closing:
+            depth -= 1
+            if depth == 0:
+                return json.loads(text[start:idx + 1])
+
+    raise json.JSONDecodeError("Unterminated JSON payload", text, start)
+
+
+def json_object(data: Any) -> dict[str, Any]:
+    """Normalize common LLM JSON shapes into an object."""
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, list):
+        if len(data) == 1 and isinstance(data[0], dict):
+            return data[0]
+        return {"items": data}
+    return {}
+
+
+def json_list(data: Any, preferred_keys: tuple[str, ...] = ("items", "queries", "sub_queries")) -> list[Any]:
+    """Normalize common LLM JSON shapes into a list."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in preferred_keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+        for value in data.values():
+            if isinstance(value, list):
+                return value
+    return []
 
 
 class Message(BaseModel):
@@ -113,6 +189,14 @@ class LLMClient:
         for attempt in range(self.max_retries + 1):
             try:
                 resp = await self._client.post(f"{self.base_url}/chat/completions", json=body)
+                if (
+                    resp.status_code in {400, 404, 422}
+                    and "response_format" in body
+                    and attempt == 0
+                ):
+                    retry_body = dict(body)
+                    retry_body.pop("response_format", None)
+                    resp = await self._client.post(f"{self.base_url}/chat/completions", json=retry_body)
                 if resp.status_code >= 400:
                     raise LLMError(
                         f"LLM API {resp.status_code}: {resp.text[:200]}",
@@ -154,7 +238,8 @@ class LLMClient:
         async with self._client.stream("POST", f"{self.base_url}/chat/completions", json=body) as resp:
             if resp.status_code >= 400:
                 content = await resp.aread()
-                raise LLMError(f"LLM stream {resp.status_code}: {content[:200]}")
+                detail = content[:200].decode("utf-8", errors="replace")
+                raise LLMError(f"LLM stream {resp.status_code}: {detail}")
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data: "):
                     continue
@@ -199,7 +284,7 @@ class LLMClient:
             kwargs["response_format"] = {"type": "json_object"}
         resp = await self.chat(model=model, messages=messages, **kwargs)
         try:
-            return json.loads(resp.content)
+            return json_object(parse_json_payload(resp.content))
         except json.JSONDecodeError as e:
             raise LLMError(f"Expected JSON, got: {resp.content[:200]}") from e
 

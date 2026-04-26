@@ -196,6 +196,8 @@ REPORTER_MODEL=claude-opus-4-7      # 最终报告用 opus
 |------|------|
 | [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 架构详解：5 节点 + Fan-Out + 事件溯源 |
 | [`BLUEPRINT.md`](docs/BLUEPRINT.md) | 路线图：v0.1 → v1.0 的演进计划 |
+| [`PRODUCTION_SPEC.md`](docs/PRODUCTION_SPEC.md) | 生产级定义：SLO、API 合同、LLM/Search/Eval/Security/Persistence 门槛 |
+| [`PRODUCTION_TODO.md`](docs/PRODUCTION_TODO.md) | 生产化执行清单：P0-P4 任务、验收命令、里程碑 |
 | [`MCP_PROTOCOL.md`](docs/MCP_PROTOCOL.md) | MCP server 工具/资源/提示词设计 |
 | [`STEER_DESIGN.md`](docs/STEER_DESIGN.md) | Steer 中断机制：状态机 + 协议 |
 | [`SOURCE_POLICY.md`](docs/SOURCE_POLICY.md) | 数据源策略：YAML 配置 + 自定义领域 |

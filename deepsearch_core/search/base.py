@@ -6,7 +6,7 @@ import abc
 from datetime import datetime
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class SearchResult(BaseModel):

@@ -11,7 +11,7 @@ import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from deepsearch_core.engine.events import Event, EventType
 from deepsearch_core.engine.state import State
@@ -31,7 +31,7 @@ class EventStore:
 
     # ---- 修复 HIGH-2：增量迁移声明 ----
     # 每个 (table, column, ddl) 元组：发现旧 db 缺列时执行 ALTER TABLE ADD COLUMN
-    _MIGRATIONS: list[tuple[str, str, str]] = [
+    _MIGRATIONS: ClassVar[list[tuple[str, str, str]]] = [
         ("runs", "result_json", "ALTER TABLE runs ADD COLUMN result_json TEXT"),
         ("runs", "error", "ALTER TABLE runs ADD COLUMN error TEXT"),
     ]

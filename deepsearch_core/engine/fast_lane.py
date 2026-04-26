@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
 
 import structlog
 
 from deepsearch_core.agents.base import AgentContext
-from deepsearch_core.engine.events import Event, EventType
 from deepsearch_core.engine.state import (
     Citation,
     Evidence,
@@ -24,7 +22,6 @@ from deepsearch_core.engine.state import (
     RunConfig,
     RunStatus,
     State,
-    SubQuery,
     TokenUsage,
 )
 from deepsearch_core.exceptions import LLMError
@@ -78,7 +75,7 @@ async def run_quick_search(
                 logger.warning("fast_lane_search_failed", engine=engine.name, error=str(e))
                 return []
 
-        budget = max(2.0, min(6.0, config.timeout_seconds * 0.4))
+        budget = max(3.0, min(10.0, config.timeout_seconds * 0.35))
         engines = ctx.search_engines
         if not engines:
             raise LLMError("No search engines configured")
@@ -118,7 +115,7 @@ async def run_quick_search(
                     timeout=rerank_budget,
                 )
                 filtered = [filtered[r.index] for r in reranked]
-            except (asyncio.TimeoutError, Exception) as e:
+            except (TimeoutError, Exception) as e:
                 logger.warning("fast_lane_rerank_failed", error=str(e))
                 filtered = filtered[:top_k]
         else:
@@ -185,7 +182,7 @@ async def run_quick_search(
                     cached_tokens=resp.cached_tokens,
                     total_tokens=resp.prompt_tokens + resp.completion_tokens,
                 )
-            except (asyncio.TimeoutError, Exception) as e:
+            except (TimeoutError, Exception) as e:
                 logger.warning("fast_lane_reporter_failed", error=str(e))
                 body_md = f"# {query}\n\n*Report generation failed: {e}*\n\nSee citations below."
                 tokens = TokenUsage()

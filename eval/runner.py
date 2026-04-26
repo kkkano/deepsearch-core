@@ -41,8 +41,14 @@ def score_factual(answer: str, expected_facts: list[str]) -> float:
     return matched / len(expected_facts)
 
 
-def score_sources(citations: list[dict], expected_include: list[str] | None) -> float:
+def score_sources(
+    citations: list[dict],
+    expected_include: list[str] | None,
+    expected_min_sources: int | None = None,
+) -> float:
     if not expected_include:
+        if expected_min_sources:
+            return min(1.0, len(citations) / expected_min_sources)
         return 1.0
     cited_domains = {c.get("domain", "").lower() for c in citations}
     matched = sum(1 for src in expected_include if any(src.lower() in d for d in cited_domains))
@@ -53,22 +59,39 @@ async def run_case(case: dict) -> dict[str, Any]:
     from deepsearch_core import DeepSearch
 
     async with DeepSearch() as ds:
-        result = await ds.quick_search(case["query"], policy=case.get("policy", "general"))
+        result = await ds.quick_search(
+            case["query"],
+            policy=case.get("policy", "general"),
+            timeout_seconds=max(30, int(case.get("max_seconds", 30))),
+        )
 
     answer = (result.get("report") or {}).get("body_markdown", "")
     citations = result.get("citations", [])
 
     factual = score_factual(answer, case.get("expected_facts", []))
-    sources = score_sources(citations, case.get("expected_sources_include"))
+    sources = score_sources(
+        citations,
+        case.get("expected_sources_include"),
+        case.get("expected_min_sources"),
+    )
+    elapsed = result.get("elapsed_seconds", 0)
+    status = result.get("status", "unknown")
 
     return {
         "id": case["id"],
         "query": case["query"],
+        "status": status,
         "factual": factual,
         "sources": sources,
-        "elapsed": result.get("elapsed_seconds", 0),
+        "citation_count": len(citations),
+        "elapsed": elapsed,
         "tokens": (result.get("token_usage") or {}).get("total_tokens", 0),
-        "passed": factual >= 0.7 and result.get("elapsed_seconds", 0) <= case.get("max_seconds", 60),
+        "passed": (
+            status == "completed"
+            and factual >= 0.7
+            and sources >= 0.7
+            and elapsed <= case.get("max_seconds", 60)
+        ),
     }
 
 
@@ -89,6 +112,7 @@ def print_summary(results: list[dict]) -> None:
     table.add_column("ID", style="cyan")
     table.add_column("Factual", justify="right")
     table.add_column("Sources", justify="right")
+    table.add_column("Cites", justify="right")
     table.add_column("Elapsed", justify="right")
     table.add_column("Tokens", justify="right")
     table.add_column("Pass", justify="center")
@@ -98,12 +122,13 @@ def print_summary(results: list[dict]) -> None:
     n = 0
     for r in results:
         if "error" in r:
-            table.add_row(r["id"], "[red]error[/red]", "-", "-", "-", "❌")
+            table.add_row(r["id"], "[red]error[/red]", "-", "-", "-", "-", "❌")
             continue
         table.add_row(
             r["id"],
             f"{r['factual']:.2f}",
             f"{r['sources']:.2f}",
+            str(r.get("citation_count", 0)),
             f"{r['elapsed']:.1f}s",
             str(r['tokens']),
             "✅" if r['passed'] else "❌",
@@ -114,7 +139,15 @@ def print_summary(results: list[dict]) -> None:
 
     if n:
         table.add_section()
-        table.add_row("[bold]AVG", f"[bold]{factual_sum / n:.2f}", f"[bold]{sources_sum / n:.2f}", "", "", "")
+        table.add_row(
+            "[bold]AVG",
+            f"[bold]{factual_sum / n:.2f}",
+            f"[bold]{sources_sum / n:.2f}",
+            "",
+            "",
+            "",
+            "",
+        )
     console.print(table)
 
 

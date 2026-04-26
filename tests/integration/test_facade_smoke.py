@@ -25,6 +25,6 @@ async def test_quick_search_smoke():
 @pytest.mark.asyncio
 async def test_steer_workflow():
     """启动 deep search → 注入 steer → 等结果。"""
-    async with DeepSearch() as ds:
+    async with DeepSearch():
         # 此测试需要异步运行环境，v0.1 简化跳过
         pytest.skip("Async steer workflow tested via CLI/HTTP integration in v0.2")

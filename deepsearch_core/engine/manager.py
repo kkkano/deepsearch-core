@@ -15,13 +15,11 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from deepsearch_core.engine.runner import GraphRunner
 from deepsearch_core.engine.state import RunConfig, RunStatus, State
 from deepsearch_core.engine.steer import SteerCommand, SteerScope
 from deepsearch_core.exceptions import (
@@ -68,7 +66,7 @@ class RunManager:
             depth=depth,
             max_agents=max_agents or engine_cfg.max_agents_fan_out,
             max_steps_per_agent=engine_cfg.max_steps_per_research,
-            policy=policy if not isinstance(policy, dict) else policy,
+            policy=policy,
             timeout_seconds=timeout_seconds or engine_cfg.task_timeout_seconds,
             enable_steer=enable_steer,
         )
@@ -140,7 +138,7 @@ class RunManager:
         # 等 wait 秒，超时返回 partial
         try:
             await asyncio.wait_for(completion.wait(), timeout=wait)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return self._build_partial_payload(task_id)
 
         return self._fetch_completed(task_id)
@@ -281,7 +279,7 @@ class RunManager:
 
     async def aclose(self) -> None:
         """优雅关闭：取消所有 in-flight 任务。"""
-        for task_id, task in list(self._tasks.items()):
+        for _task_id, task in list(self._tasks.items()):
             if not task.done():
                 task.cancel()
                 try:

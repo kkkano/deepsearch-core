@@ -46,7 +46,7 @@ async def test_runner_writes_events(store, basic_state):
         return state, END
 
     runner = GraphRunner(nodes={"n": n}, store=store)
-    final = await runner.run(basic_state, start_node="n")
+    await runner.run(basic_state, start_node="n")
 
     events = list(store.replay(basic_state.run_id))
     types = [e.type for e in events]
@@ -133,7 +133,7 @@ async def test_runner_steer_current_step_inline(store, basic_state):
     store.create_run(basic_state)
     store.add_steer(basic_state.run_id, "narrow scope", SteerScope.CURRENT_STEP)
 
-    final = await runner.run(basic_state, start_node="n")
+    await runner.run(basic_state, start_node="n")
     assert captured["payload"] is not None
     assert captured["payload"]["scope"] == SteerScope.CURRENT_STEP.value
     assert "narrow scope" in captured["payload"]["content"]

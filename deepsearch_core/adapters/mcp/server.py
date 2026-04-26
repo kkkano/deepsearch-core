@@ -26,7 +26,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from typing import Any
 
 import structlog
 
@@ -34,8 +33,6 @@ from deepsearch_core import __version__
 from deepsearch_core.config import get_config
 from deepsearch_core.exceptions import (
     DeepSearchError,
-    TaskAlreadyFinishedError,
-    TaskNotFoundError,
 )
 from deepsearch_core.facade import DeepSearch
 
@@ -119,9 +116,9 @@ def main():
 
     try:
         # 导入官方 mcp SDK
-        from mcp.server import Server, NotificationOptions
-        from mcp.server.models import InitializationOptions
         import mcp.types as types
+        from mcp.server import NotificationOptions, Server
+        from mcp.server.models import InitializationOptions
     except ImportError:
         print("ERROR: mcp package not installed. Run: pip install mcp>=1.0.0", file=sys.stderr)
         sys.exit(1)

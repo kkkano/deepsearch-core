@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from deepsearch_core.engine.steer import SteerCommand, SteerScope
 
 
@@ -59,7 +57,7 @@ def test_store_pop_returns_none_when_empty(store):
 
 def test_store_mark_applied_then_no_pop(store):
     _seed_run(store, "run_b")
-    cmd = store.add_steer("run_b", "test")
+    store.add_steer("run_b", "test")
     popped = store.pop_pending_steer("run_b")
     assert popped is not None
 

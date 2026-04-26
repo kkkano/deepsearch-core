@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-
 import pytest
 
 from deepsearch_core.exceptions import InvalidPolicyError
@@ -107,7 +105,6 @@ def test_filter_blocks_subdomain(general_policy):
 
 def test_filter_blocks_wildcard():
     """*.spam.* 通配也要继续工作。"""
-    from deepsearch_core.policy.loader import PolicyConfig
 
     policy = PolicyConfig(name="t", blocked_domains=["*.crypto-pump.*"])
     results = [

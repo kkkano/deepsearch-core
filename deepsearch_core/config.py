@@ -11,15 +11,48 @@ from pydantic import BaseModel, Field
 
 load_dotenv()
 
+external_env_file = os.getenv("DEEPSEARCH_ENV_FILE")
+if external_env_file:
+    load_dotenv(external_env_file, override=False)
+
+
+def _env_first(*keys: str, default: str = "") -> str:
+    for key in keys:
+        value = os.getenv(key)
+        if value:
+            return value
+    return default
+
+
+def _model_env(role: str, default: str) -> str:
+    return _env_first(
+        f"{role.upper()}_MODEL",
+        "DEEPSEARCH_MODEL",
+        "LLM_MODEL",
+        "EVAL_LLM_MODEL",
+        default=default,
+    )
+
 
 class LLMConfig(BaseModel):
-    base_url: str = Field(default_factory=lambda: os.getenv("LLM_BASE_URL", "https://api.anthropic.com/v1"))
-    api_key: str = Field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
-    supervisor_model: str = Field(default_factory=lambda: os.getenv("SUPERVISOR_MODEL", "claude-sonnet-4-6"))
-    planner_model: str = Field(default_factory=lambda: os.getenv("PLANNER_MODEL", "claude-haiku-4-5"))
-    researcher_model: str = Field(default_factory=lambda: os.getenv("RESEARCHER_MODEL", "claude-haiku-4-5"))
-    critic_model: str = Field(default_factory=lambda: os.getenv("CRITIC_MODEL", "claude-sonnet-4-6"))
-    reporter_model: str = Field(default_factory=lambda: os.getenv("REPORTER_MODEL", "claude-opus-4-7"))
+    base_url: str = Field(default_factory=lambda: _env_first(
+        "LLM_BASE_URL",
+        "LLM_API_BASE",
+        "OPENAI_BASE_URL",
+        "GEMINI_PROXY_API_BASE",
+        default="https://api.anthropic.com/v1",
+    ))
+    api_key: str = Field(default_factory=lambda: _env_first(
+        "LLM_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_PROXY_API_KEY",
+        "ANTHROPIC_API_KEY",
+    ))
+    supervisor_model: str = Field(default_factory=lambda: _model_env("supervisor", "claude-sonnet-4-6"))
+    planner_model: str = Field(default_factory=lambda: _model_env("planner", "claude-haiku-4-5"))
+    researcher_model: str = Field(default_factory=lambda: _model_env("researcher", "claude-haiku-4-5"))
+    critic_model: str = Field(default_factory=lambda: _model_env("critic", "claude-sonnet-4-6"))
+    reporter_model: str = Field(default_factory=lambda: _model_env("reporter", "claude-opus-4-7"))
     enable_caching: bool = Field(default_factory=lambda: os.getenv("ENABLE_PROMPT_CACHING", "false").lower() == "true")
 
     def model_for(self, role: str) -> str:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -12,9 +11,7 @@ from deepsearch_core.engine.runner import END
 from deepsearch_core.engine.state import (
     Citation,
     Report,
-    RunConfig,
     RunStatus,
-    State,
 )
 
 

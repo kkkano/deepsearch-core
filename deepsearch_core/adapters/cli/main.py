@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -33,19 +32,30 @@ app = typer.Typer(
 console = Console()
 
 
+def _progress_disabled(json_output: bool) -> bool:
+    encoding = (getattr(console.file, "encoding", None) or "").lower()
+    return json_output or ("utf" not in encoding)
+
+
 @app.command()
 def quick(
     query: str = typer.Argument(..., help="Your question"),
     policy: str = typer.Option("general", "--policy", "-p"),
+    timeout_seconds: int = typer.Option(30, "--timeout", min=5, max=120),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Fast single-round search (<8s)."""
 
     async def _run():
         async with DeepSearch() as ds:
-            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+                disable=_progress_disabled(json_output),
+            ) as progress:
                 progress.add_task(f"Searching: {query[:60]}...", total=None)
-                result = await ds.quick_search(query, policy=policy)
+                result = await ds.quick_search(query, policy=policy, timeout_seconds=timeout_seconds)
             return result
 
     result = asyncio.run(_run())
@@ -66,6 +76,7 @@ def deep(
     depth: int = typer.Option(3, "--depth", "-d", min=1, max=5),
     policy: str = typer.Option("general", "--policy", "-p"),
     max_agents: int = typer.Option(4, "--max-agents"),
+    timeout_seconds: int = typer.Option(300, "--timeout", min=30, max=600),
     stream: bool = typer.Option(False, "--stream", help="Stream events live"),
     async_mode: bool = typer.Option(False, "--async", help="Return task_id, run in background"),
     json_output: bool = typer.Option(False, "--json"),
@@ -75,14 +86,31 @@ def deep(
     async def _stream_run():
         async with DeepSearch() as ds:
             console.print(f"[cyan]Deep search: {query}[/cyan] (depth={depth}, policy={policy})\n")
-            async for event in ds.stream(query, depth=depth, policy=policy, max_agents=max_agents):
+            async for event in ds.stream(
+                query,
+                depth=depth,
+                policy=policy,
+                max_agents=max_agents,
+                timeout_seconds=timeout_seconds,
+            ):
                 console.print(f"[dim]{event.type.value:30s}[/dim] {json.dumps(event.payload, ensure_ascii=False)[:120]}")
 
     async def _sync_run():
         async with DeepSearch() as ds:
-            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+                disable=_progress_disabled(json_output),
+            ) as progress:
                 progress.add_task(f"Deep researching: {query[:60]}...", total=None)
-                return await ds.deep_search(query, depth=depth, policy=policy, max_agents=max_agents)
+                return await ds.deep_search(
+                    query,
+                    depth=depth,
+                    policy=policy,
+                    max_agents=max_agents,
+                    timeout_seconds=timeout_seconds,
+                )
 
     if stream:
         asyncio.run(_stream_run())
@@ -101,7 +129,7 @@ def deep(
     else:
         report = result.get("report") or {}
         body = report.get("body_markdown") or "(no report)"
-        console.print(Panel(Markdown(body), title=f"Deep Research", border_style="green"))
+        console.print(Panel(Markdown(body), title="Deep Research", border_style="green"))
 
         critic = result.get("critic")
         if critic:

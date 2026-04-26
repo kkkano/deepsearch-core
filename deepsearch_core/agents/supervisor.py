@@ -6,8 +6,6 @@ import structlog
 
 from deepsearch_core.agents.base import AgentContext
 from deepsearch_core.engine.state import State
-from deepsearch_core.llm.client import Message
-from deepsearch_core.prompts import SUPERVISOR_SYSTEM_PROMPT
 
 logger = structlog.get_logger(__name__)
 

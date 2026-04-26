@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import inspect
 
+from deepsearch_core.agents.planner import _normalize_plan_payload
 from deepsearch_core.engine.state import RunConfig
 from deepsearch_core.facade import DeepSearch
+from deepsearch_core.llm.client import json_list, json_object, parse_json_payload
 
 
 def test_deep_search_signature_explicit_params():
@@ -35,3 +37,33 @@ def test_run_config_extra_field_accepts_dict():
     """RunConfig.extra 接受任意 dict，多余 kwargs 进这里。"""
     cfg = RunConfig(goal="x", extra={"foo": "bar", "depth_override": 99})
     assert cfg.extra["foo"] == "bar"
+
+
+def test_parse_json_payload_accepts_fenced_object():
+    data = parse_json_payload('```json\n{"sub_queries": [{"text": "q"}]}\n```')
+    assert json_object(data)["sub_queries"][0]["text"] == "q"
+
+
+def test_parse_json_payload_accepts_text_wrapped_array():
+    data = parse_json_payload('Here is the JSON:\n[{"text": "q1"}, {"text": "q2"}]\nDone.')
+    assert json_list(data)[1]["text"] == "q2"
+
+
+def test_json_object_wraps_array_for_planner_compatibility():
+    data = json_object([{"text": "q1"}, {"text": "q2"}])
+    assert data["items"][0]["text"] == "q1"
+
+
+def test_planner_accepts_provider_array_payload():
+    data = _normalize_plan_payload([
+        {
+            "rationale": "single wrapper",
+            "sub_queries": [{"text": "q1", "priority": 10}],
+        }
+    ])
+    assert data["sub_queries"][0]["text"] == "q1"
+
+
+def test_planner_treats_array_as_sub_queries():
+    data = _normalize_plan_payload([{"text": "q1"}, {"text": "q2"}])
+    assert data["sub_queries"][1]["text"] == "q2"

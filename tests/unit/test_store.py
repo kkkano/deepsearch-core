@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
 from deepsearch_core.engine.events import Event, EventType
 from deepsearch_core.engine.state import RunConfig, RunStatus, State
 
